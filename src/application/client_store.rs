@@ -67,6 +67,11 @@ impl ClientStore {
         self.next_file_counter
     }
 
+    /// The number after the next cut-off file's, or `None` if the counter has no room to advance.
+    pub fn following_file_counter(&self) -> Option<u64> {
+        self.next_file_counter.checked_add(1)
+    }
+
     /// The balance of every client, sorted by client id.
     pub fn cut_off_lines(&self) -> Vec<CutOffLine> {
         let mut lines: Vec<CutOffLine> = self
@@ -82,9 +87,11 @@ impl ClientStore {
         lines
     }
 
-    /// Closes a cut-off whose file was written: every balance back to zero, next file number.
-    pub fn complete_cut_off(&mut self) {
+    /// Closes a cut-off whose file was written: every balance back to zero, and the file
+    /// counter moves to `following_file_counter`, which `following_file_counter()` gave before
+    /// the write so this step cannot fail.
+    pub fn complete_cut_off(&mut self, following_file_counter: u64) {
         self.clients.values_mut().for_each(Client::reset_balance);
-        self.next_file_counter += 1;
+        self.next_file_counter = following_file_counter;
     }
 }
