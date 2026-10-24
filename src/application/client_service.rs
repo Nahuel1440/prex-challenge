@@ -70,6 +70,8 @@ impl ClientService {
     }
 
     /// A copy of the client taken under the lock, so a concurrent movement never tears it.
+    ///
+    /// Fails with `ClientNotFound` if the id was never registered.
     pub async fn find(&self, client_id: ClientId) -> Result<ClientView, AppError> {
         self.store
             .lock()

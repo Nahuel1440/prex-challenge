@@ -10,13 +10,13 @@ use crate::domain::{Client, ClientId};
 pub struct ClientView {
     /// Identifier given at registration.
     pub client_id: ClientId,
-    /// Trimmed name.
+    /// Name, trimmed at registration.
     pub client_name: String,
     /// Birth date.
     pub birth_date: NaiveDate,
-    /// Normalized document.
+    /// Document, normalized by `NewClient` at registration.
     pub document_number: String,
-    /// Uppercase ISO country.
+    /// ISO country, uppercased by `NewClient` at registration.
     pub country: String,
     /// Net balance since the last cut-off; can be negative.
     pub balance: Decimal,

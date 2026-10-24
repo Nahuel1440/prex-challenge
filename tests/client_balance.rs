@@ -9,7 +9,10 @@ use actix_web::{
     App, Error,
 };
 use prex_processor::{application::ClientService, http};
-use serde_json::{json, Value};
+use serde_json::Value;
+
+/// Id of the first registered client, Ana.
+const ANA_ID: u64 = 1;
 
 /// Answer of the endpoint: status, content type and the body exactly as sent on the wire.
 struct Answer {
@@ -47,7 +50,7 @@ where
     assert!(response.status().is_success());
 }
 
-/// Registers Ana with a messy document and a lowercase country; she gets id 1.
+/// Registers Ana with a messy document and a lowercase country; she gets `ANA_ID`.
 async fn register_ana<S>(app: &S)
 where
     S: Service<Request, Response = ServiceResponse, Error = Error>,
@@ -83,12 +86,23 @@ where
     }
 }
 
+/// A bad `user_id` must give the JSON error contract, not Actix plain text.
+async fn assert_invalid_request(query: &str) {
+    let app = running_app().await;
+
+    let answer = get_client_balance(&app, query).await;
+
+    assert_eq!(answer.status, StatusCode::BAD_REQUEST);
+    assert!(answer.content_type.starts_with("application/json"));
+    assert_eq!(answer.body()["code"], "INVALID_REQUEST");
+}
+
 #[actix_web::test]
 async fn get_client_balance_returns_200_with_normalized_profile_and_balance() {
     let app = running_app().await;
     register_ana(&app).await;
 
-    let answer = get_client_balance(&app, "?user_id=1").await;
+    let answer = get_client_balance(&app, &format!("?user_id={ANA_ID}")).await;
 
     assert_eq!(answer.status, StatusCode::OK);
     assert_eq!(
@@ -98,39 +112,29 @@ async fn get_client_balance_returns_200_with_normalized_profile_and_balance() {
 }
 
 #[actix_web::test]
-async fn get_client_balance_of_new_client_returns_balance_zero() {
-    let app = running_app().await;
-    register_ana(&app).await;
-
-    let answer = get_client_balance(&app, "?user_id=1").await;
-
-    assert_eq!(answer.body()["balance"], json!(0));
-}
-
-#[actix_web::test]
 async fn get_client_balance_returns_negative_balance_as_json_number() {
     let app = running_app().await;
     register_ana(&app).await;
     post_json(
         &app,
         "/new_credit_transaction",
-        r#"{"client_id":1,"credit_amount":100.50}"#,
+        &format!(r#"{{"client_id":{ANA_ID},"credit_amount":100.50}}"#),
     )
     .await;
     post_json(
         &app,
         "/new_debit_transaction",
-        r#"{"client_id":1,"debit_amount":30}"#,
+        &format!(r#"{{"client_id":{ANA_ID},"debit_amount":30}}"#),
     )
     .await;
     post_json(
         &app,
         "/new_debit_transaction",
-        r#"{"client_id":1,"debit_amount":1000}"#,
+        &format!(r#"{{"client_id":{ANA_ID},"debit_amount":1000}}"#),
     )
     .await;
 
-    let answer = get_client_balance(&app, "?user_id=1").await;
+    let answer = get_client_balance(&app, &format!("?user_id={ANA_ID}")).await;
 
     assert_eq!(answer.status, StatusCode::OK);
     assert!(answer.body_text.ends_with(r#""balance":-929.50}"#));
@@ -144,17 +148,6 @@ async fn get_client_balance_unknown_id_returns_404_client_not_found() {
 
     assert_eq!(answer.status, StatusCode::NOT_FOUND);
     assert_eq!(answer.body()["code"], "CLIENT_NOT_FOUND");
-}
-
-/// A bad `user_id` must give the JSON error contract, not Actix plain text.
-async fn assert_invalid_request(query: &str) {
-    let app = running_app().await;
-
-    let answer = get_client_balance(&app, query).await;
-
-    assert_eq!(answer.status, StatusCode::BAD_REQUEST);
-    assert!(answer.content_type.starts_with("application/json"));
-    assert_eq!(answer.body()["code"], "INVALID_REQUEST");
 }
 
 #[actix_web::test]
