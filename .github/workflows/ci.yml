@@ -53,6 +53,8 @@ jobs:
         with:
           node-version: 20
       - run: npx --yes newman@6 run postman/prex-challenge.postman_collection.json --env-var "base_url=$BASE_URL"
+      - name: Smoke test with the cut-off file check
+        run: CUT_OFF_DIR="$RUNNER_TEMP/cutoff" scripts/smoke.sh
       - name: Check the cut-off files
         run: scripts/check_cut_off_files.sh "$RUNNER_TEMP/cutoff"
       - name: Stop the server

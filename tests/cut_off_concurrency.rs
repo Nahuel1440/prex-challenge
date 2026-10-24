@@ -70,9 +70,9 @@ fn run_cut_offs(service: &SharedService) -> tokio::task::JoinHandle<()> {
 fn total_in_cut_off_files(dir: &Path) -> Decimal {
     fs::read_dir(dir)
         .unwrap()
-        .flat_map(|entry| {
+        .map(|entry| {
             let content = fs::read_to_string(entry.unwrap().path()).unwrap();
-            content.lines().map(balance_of_line).collect::<Vec<_>>()
+            content.lines().map(balance_of_line).sum::<Decimal>()
         })
         .sum()
 }

@@ -4,7 +4,8 @@
 set -euo pipefail
 
 CUT_OFF_DIR="${1:?usage: check_cut_off_files.sh <cut_off_dir>}"
-LINE_PATTERN='^[0-9]+ -?[0-9]+(\.[0-9]+)?$'
+# `ID BALANCE` with the id and the balance in normal form: no leading or trailing zeros.
+LINE_PATTERN='^[1-9][0-9]* (0|-?[1-9][0-9]*(\.[0-9]*[1-9])?|-?0\.[0-9]*[1-9])$'
 
 shopt -s nullglob
 cut_off_files=("$CUT_OFF_DIR"/*.DAT)
@@ -19,6 +20,7 @@ if grep --invert-match --extended-regexp --quiet "$LINE_PATTERN" "${cut_off_file
   exit 1
 fi
 
+# An empty cut-off is valid, but a check that saw no line at all proves nothing.
 if ! grep --extended-regexp --quiet "$LINE_PATTERN" "${cut_off_files[@]}"; then
   echo "FAIL: the cut-off files have no 'ID BALANCE' line" >&2
   exit 1
