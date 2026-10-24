@@ -1,11 +1,11 @@
 //! Client service.
 
 use chrono::NaiveDate;
+use rust_decimal::Decimal;
 use tokio::sync::Mutex;
 
 use super::{AppError, ClientStore};
 use crate::domain::{Amount, ClientId, NewClient};
-use rust_decimal::Decimal;
 
 /// The unvalidated data to register a client, as the issuer sent it.
 #[derive(Debug, Clone)]
@@ -74,7 +74,6 @@ impl ClientService {
 mod tests {
     use super::*;
     use crate::application::AppError;
-    use crate::domain::Amount;
     use crate::domain::ClientId;
     use chrono::NaiveDate;
     use rust_decimal::Decimal;
