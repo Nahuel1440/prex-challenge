@@ -8,10 +8,12 @@ use actix_web::{
     web::Data,
     App, Error,
 };
-use prex_processor::{application::ClientService, http};
+use prex_processor::{application::ClientService, http, infrastructure::UnwiredCutOffFileWriter};
 use serde_json::{json, Value};
 use std::rc::Rc;
 
+/// Cut-off is not under test here; any counter works.
+const FIRST_FILE_COUNTER: u64 = 1;
 const CONCURRENT_REQUESTS: usize = 20;
 
 fn valid_body_with_document(document_number: &str) -> Value {
@@ -32,8 +34,11 @@ fn body_with(field: &str, value: Value) -> Value {
 async fn running_app() -> impl Service<Request, Response = ServiceResponse, Error = Error> {
     test::init_service(
         App::new()
-            .app_data(Data::new(ClientService::new()))
-            .configure(http::configure),
+            .app_data(Data::new(ClientService::new(
+                UnwiredCutOffFileWriter,
+                FIRST_FILE_COUNTER,
+            )))
+            .configure(http::configure::<UnwiredCutOffFileWriter>),
     )
     .await
 }

@@ -8,9 +8,11 @@ use actix_web::{
     web::Data,
     App, Error,
 };
-use prex_processor::{application::ClientService, http};
+use prex_processor::{application::ClientService, http, infrastructure::UnwiredCutOffFileWriter};
 use serde_json::{json, Value};
 
+/// Cut-off is not under test here; any counter works.
+const FIRST_FILE_COUNTER: u64 = 1;
 const CREDIT_URI: &str = "/new_credit_transaction";
 const DEBIT_URI: &str = "/new_debit_transaction";
 /// Largest `Decimal` value, written out because JSON numbers keep every digit.
@@ -31,8 +33,11 @@ impl Answer {
 async fn app_with_one_client() -> impl Service<Request, Response = ServiceResponse, Error = Error> {
     let app = test::init_service(
         App::new()
-            .app_data(Data::new(ClientService::new()))
-            .configure(http::configure),
+            .app_data(Data::new(ClientService::new(
+                UnwiredCutOffFileWriter,
+                FIRST_FILE_COUNTER,
+            )))
+            .configure(http::configure::<UnwiredCutOffFileWriter>),
     )
     .await;
     let register = test::TestRequest::post()

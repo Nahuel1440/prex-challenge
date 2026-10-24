@@ -2,12 +2,12 @@
 
 use std::future::Future;
 
-use actix_web::{post, web, HttpResponse};
+use actix_web::{web, HttpResponse};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::Number;
 
-use crate::application::{AppError, ClientService};
+use crate::application::{AppError, ClientService, CutOffFileWriter};
 use crate::domain::{Amount, AmountError, ClientId};
 
 /// Body of `POST /new_credit_transaction`.
@@ -47,9 +47,8 @@ fn parse_amount(requested_amount: &Number) -> Result<Amount, AppError> {
 }
 
 /// Credits the client and answers 200 with the new balance.
-#[post("/new_credit_transaction")]
-pub async fn new_credit_transaction(
-    service: web::Data<ClientService>,
+pub async fn new_credit_transaction<W: CutOffFileWriter + 'static>(
+    service: web::Data<ClientService<W>>,
     request: web::Json<CreditRequest>,
 ) -> Result<HttpResponse, AppError> {
     let CreditRequest {
@@ -64,9 +63,8 @@ pub async fn new_credit_transaction(
 }
 
 /// Debits the client and answers 200 with the new balance, which may be negative.
-#[post("/new_debit_transaction")]
-pub async fn new_debit_transaction(
-    service: web::Data<ClientService>,
+pub async fn new_debit_transaction<W: CutOffFileWriter + 'static>(
+    service: web::Data<ClientService<W>>,
     request: web::Json<DebitRequest>,
 ) -> Result<HttpResponse, AppError> {
     let DebitRequest {

@@ -1,11 +1,11 @@
 //! `GET /client_balance`.
 
-use actix_web::{get, web, HttpResponse};
+use actix_web::{web, HttpResponse};
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
-use crate::application::{AppError, ClientService, ClientView};
+use crate::application::{AppError, ClientService, ClientView, CutOffFileWriter};
 use crate::domain::ClientId;
 
 /// Query string of `GET /client_balance`; the PDF calls the client id `user_id`.
@@ -40,9 +40,8 @@ impl From<ClientView> for ClientBalanceResponse {
 }
 
 /// Answers 200 with the client data and balance, or 404 if the id is unknown.
-#[get("/client_balance")]
-pub async fn client_balance(
-    service: web::Data<ClientService>,
+pub async fn client_balance<W: CutOffFileWriter + 'static>(
+    service: web::Data<ClientService<W>>,
     query: web::Query<ClientBalanceQuery>,
 ) -> Result<HttpResponse, AppError> {
     let client_id = ClientId::new(query.user_id);
