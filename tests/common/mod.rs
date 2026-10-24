@@ -17,10 +17,10 @@ use prex_processor::{application::ClientService, http, infrastructure::FsCutOffF
 use serde_json::Value;
 
 /// Counter for tests that never run a cut-off, so any value works.
-pub const FIRST_FILE_COUNTER: u64 = 1;
+const FIRST_FILE_COUNTER: u64 = 1;
 
 /// A writer pointing at a folder that does not exist: a cut-off by mistake would fail loudly.
-pub fn writer_that_is_never_used() -> FsCutOffFileWriter {
+fn writer_that_is_never_used() -> FsCutOffFileWriter {
     FsCutOffFileWriter::new(PathBuf::from("this_folder_does_not_exist"))
 }
 

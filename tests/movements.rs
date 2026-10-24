@@ -160,7 +160,7 @@ async fn debit_unknown_client_returns_404_client_not_found() {
 #[actix_web::test]
 async fn credit_overflow_returns_422_balance_overflow_and_balance_unchanged() {
     let app = app_with_one_client().await;
-    common::post_json(&app, CREDIT_URI, &credit_body(1, DECIMAL_MAX)).await;
+    common::post_json_expecting_success(&app, CREDIT_URI, &credit_body(1, DECIMAL_MAX)).await;
 
     let overflow = common::post_json(&app, CREDIT_URI, &credit_body(1, "1")).await;
     let balance_after = common::post_json(&app, DEBIT_URI, &debit_body(1, "1")).await;
@@ -217,7 +217,7 @@ async fn credit_client_id_as_string_returns_400_invalid_request() {
 #[actix_web::test]
 async fn debit_below_decimal_min_returns_422_balance_overflow_and_balance_unchanged() {
     let app = app_with_one_client().await;
-    common::post_json(&app, DEBIT_URI, &debit_body(1, DECIMAL_MAX)).await;
+    common::post_json_expecting_success(&app, DEBIT_URI, &debit_body(1, DECIMAL_MAX)).await;
 
     let overflow = common::post_json(&app, DEBIT_URI, &debit_body(1, "1")).await;
     let balance_after = common::post_json(&app, CREDIT_URI, &credit_body(1, "1")).await;

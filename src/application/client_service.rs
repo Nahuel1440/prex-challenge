@@ -90,8 +90,16 @@ impl<W: CutOffFileWriter> ClientService<W> {
     ///
     /// Runs under the lock, with no timeout around the write. If the write fails, balances
     /// and file counter stay as they were, so a retry uses the same file name.
+    ///
+    /// Not cancel-safe by itself: if this future is dropped after the file is published, the
+    /// balances are not reset and the next cut-off counts them again. Run it in its own task,
+    /// as the HTTP handler does.
     pub async fn store_balances(&self, today: NaiveDate) -> Result<String, AppError> {
         let mut store = self.store.lock().await;
+        let following_file_counter = store.following_file_counter().ok_or_else(|| {
+            tracing::error!("the cut-off file counter cannot advance, so no file is written");
+            AppError::CutOffFailed
+        })?;
         let file_name = cut_off_file_name(today, store.next_file_counter());
         let lines = store.cut_off_lines();
 
@@ -102,7 +110,7 @@ impl<W: CutOffFileWriter> ClientService<W> {
                 tracing::error!(%cause, %file_name, "cut-off file could not be written");
                 AppError::CutOffFailed
             })?;
-        store.complete_cut_off();
+        store.complete_cut_off(following_file_counter);
 
         Ok(file_name)
     }
@@ -438,6 +446,19 @@ mod tests {
 
         assert_eq!(first, "24102026_1.DAT");
         assert_eq!(second, "24102026_2.DAT");
+    }
+
+    #[tokio::test]
+    async fn store_balances_fails_before_writing_when_the_counter_cannot_advance() {
+        let service = service_starting_at_file_counter(u64::MAX);
+        let client_id = registered_client(&service, "1").await;
+        service.credit(client_id, amount("500.12")).await.unwrap();
+
+        let error = service.store_balances(today()).await;
+
+        assert_eq!(error.unwrap_err(), AppError::CutOffFailed);
+        assert_eq!(service.writer.recorded_writes(), []);
+        assert_eq!(balance_of(&service, client_id).await, balance("500.12"));
     }
 
     #[tokio::test]

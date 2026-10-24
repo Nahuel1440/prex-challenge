@@ -32,14 +32,9 @@ async fn post_new_client<S>(app: &S, body: &Value) -> (StatusCode, Value)
 where
     S: Service<Request, Response = ServiceResponse, Error = Error>,
 {
-    let request = test::TestRequest::post()
-        .uri("/new_client")
-        .set_json(body)
-        .to_request();
-    let response = test::call_service(app, request).await;
-    let status = response.status();
+    let answer = common::post_json(app, "/new_client", &body.to_string()).await;
 
-    (status, test::read_body_json(response).await)
+    (answer.status, answer.body())
 }
 
 async fn assert_invalid_request(body: Value) {
