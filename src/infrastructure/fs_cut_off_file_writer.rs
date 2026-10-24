@@ -6,6 +6,11 @@ use std::path::{Path, PathBuf};
 
 use crate::application::{CutOffFileWriter, CutOffLine};
 
+/// Start of the name a file has while it is being written; no cut-off file name starts with it.
+const TEMP_FILE_PREFIX: &str = ".tmp-";
+/// End of the name a file has while it is being written.
+const TEMP_FILE_SUFFIX: &str = ".tmp";
+
 /// Writes each cut-off as a file in one folder, one `ID BALANCE` line per client.
 ///
 /// The file appears complete or not at all: it is written under a temp name, flushed to disk
@@ -17,7 +22,7 @@ pub struct FsCutOffFileWriter {
 }
 
 impl FsCutOffFileWriter {
-    /// A writer that puts its files in `dir`, which must already exist.
+    /// A writer that puts its files in `dir`. The caller creates the folder, as `main` does at startup.
     pub fn new(dir: PathBuf) -> Self {
         Self { dir }
     }
@@ -45,20 +50,29 @@ fn file_content(lines: &[CutOffLine]) -> String {
 
 /// Makes `content` appear in `dir` under `file_name`, all at once.
 fn publish_file(dir: &Path, file_name: &str, content: &str) -> io::Result<()> {
-    let temp_path = dir.join(format!(".tmp-{file_name}.tmp"));
+    let temp_path = dir.join(format!("{TEMP_FILE_PREFIX}{file_name}{TEMP_FILE_SUFFIX}"));
     let final_path = dir.join(file_name);
 
     let linked =
         write_and_sync(&temp_path, content).and_then(|()| fs::hard_link(&temp_path, &final_path));
-    let removed = fs::remove_file(&temp_path);
-
-    if let Err(cause) = removed {
-        tracing::warn!(%cause, ?temp_path, "temp file of a cut-off could not be removed");
-    }
+    remove_temp_file(&temp_path);
 
     linked
 }
 
+/// Removes the temp file on every outcome. A failure only warns: it never changes the result,
+/// because after the link the cut-off file is already published.
+fn remove_temp_file(temp_path: &Path) {
+    match fs::remove_file(temp_path) {
+        Ok(()) => {}
+        Err(cause) if cause.kind() == io::ErrorKind::NotFound => {}
+        Err(cause) => {
+            tracing::warn!(%cause, ?temp_path, "temp file of a cut-off could not be removed");
+        }
+    }
+}
+
+/// Creates the file at `path` with `content` and flushes it to disk.
 fn write_and_sync(path: &Path, content: &str) -> io::Result<()> {
     let mut file = File::create(path)?;
     file.write_all(content.as_bytes())?;
@@ -80,7 +94,7 @@ mod tests {
         }
     }
 
-    fn file_names_in(dir: &std::path::Path) -> Vec<String> {
+    fn file_names_in(dir: &Path) -> Vec<String> {
         let mut names: Vec<String> = fs::read_dir(dir)
             .unwrap()
             .map(|entry| entry.unwrap().file_name().into_string().unwrap())
@@ -123,10 +137,7 @@ mod tests {
 
         let outcome = writer.write("24102026_1.DAT", &[line(1, "99")]).await;
 
-        assert_eq!(
-            outcome.unwrap_err().kind(),
-            std::io::ErrorKind::AlreadyExists
-        );
+        assert_eq!(outcome.unwrap_err().kind(), io::ErrorKind::AlreadyExists);
         let content = fs::read_to_string(dir.path().join("24102026_1.DAT")).unwrap();
         assert_eq!(content, "1 10\n");
     }
