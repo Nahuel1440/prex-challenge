@@ -23,7 +23,7 @@ pub struct ClientRegistration {
 
 /// Runs the client use cases over one shared store.
 #[derive(Debug)]
-pub struct ClientService<W: CutOffFileWriter> {
+pub struct ClientService<W> {
     store: Mutex<ClientStore>,
     writer: W,
 }
