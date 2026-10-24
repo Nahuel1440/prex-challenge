@@ -1,6 +1,6 @@
 //! Stores a cut-off as a text file in a folder.
 
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
@@ -49,15 +49,37 @@ fn file_content(lines: &[CutOffLine]) -> String {
 }
 
 /// Makes `content` appear in `dir` under `file_name`, all at once.
+///
+/// A temp file left by a crash is removed first, because it may still be a link to a
+/// published file.
 fn publish_file(dir: &Path, file_name: &str, content: &str) -> io::Result<()> {
     let temp_path = dir.join(format!("{TEMP_FILE_PREFIX}{file_name}{TEMP_FILE_SUFFIX}"));
     let final_path = dir.join(file_name);
 
+    remove_temp_file(&temp_path);
     let linked =
         write_and_sync(&temp_path, content).and_then(|()| fs::hard_link(&temp_path, &final_path));
     remove_temp_file(&temp_path);
 
+    match &linked {
+        Ok(()) => sync_dir(dir),
+        Err(cause) if cause.kind() == io::ErrorKind::AlreadyExists => {
+            tracing::error!(%file_name, "a cut-off file with this name already exists; an operator must act");
+        }
+        Err(_) => {}
+    }
+
     linked
+}
+
+/// Flushes the folder entry of the new file. A failure only warns: the file is published.
+///
+/// No test covers the failure: a folder that opens but cannot be flushed cannot be built
+/// in a portable way.
+fn sync_dir(dir: &Path) {
+    if let Err(cause) = File::open(dir).and_then(|folder| folder.sync_all()) {
+        tracing::warn!(%cause, ?dir, "cut-off folder could not be flushed to disk");
+    }
 }
 
 /// Removes the temp file on every outcome. A failure only warns: it never changes the result,
@@ -72,9 +94,11 @@ fn remove_temp_file(temp_path: &Path) {
     }
 }
 
-/// Creates the file at `path` with `content` and flushes it to disk.
+/// Creates the new file at `path` with `content` and flushes it to disk.
+///
+/// Fails if `path` exists, so it never writes through a link to another file.
 fn write_and_sync(path: &Path, content: &str) -> io::Result<()> {
-    let mut file = File::create(path)?;
+    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
     file.write_all(content.as_bytes())?;
     file.sync_all()
 }
@@ -167,6 +191,25 @@ mod tests {
             .unwrap_err();
 
         assert_eq!(file_names_in(dir.path()), ["24102026_1.DAT"]);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn write_never_modifies_a_file_linked_from_a_stale_temp() {
+        let dir = tempfile::tempdir().unwrap();
+        let published = dir.path().join("24102026_1.DAT");
+        fs::write(&published, "1 10\n").unwrap();
+        fs::hard_link(&published, dir.path().join(".tmp-24102026_2.DAT.tmp")).unwrap();
+        let writer = FsCutOffFileWriter::new(dir.path().to_owned());
+
+        writer
+            .write("24102026_2.DAT", &[line(1, "99")])
+            .await
+            .unwrap();
+
+        assert_eq!(fs::read_to_string(&published).unwrap(), "1 10\n");
+        let content = fs::read_to_string(dir.path().join("24102026_2.DAT")).unwrap();
+        assert_eq!(content, "1 99\n");
     }
 
     #[tokio::test]
