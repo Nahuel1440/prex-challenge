@@ -64,4 +64,10 @@ expect_movement 400 'INVALID_AMOUNT' /new_credit_transaction "{\"client_id\":$CL
 expect_movement 400 'INVALID_REQUEST' /new_credit_transaction "{\"client_id\":$CLIENT_ID,\"credit_amount\":\"100.50\"}"
 expect_movement 404 'CLIENT_NOT_FOUND' /new_credit_transaction '{"client_id":999999999,"credit_amount":10}'
 
+# The client above is Movement Client with a balance of -929.50 after the movements.
+expect_status 200 "\"client_id\":$CLIENT_ID,\"client_name\":\"Movement Client\",\"birth_date\":\"1990-05-17\"" "$BASE_URL/client_balance?user_id=$CLIENT_ID"
+expect_status 200 '"country":"AR","balance":-929.50}' "$BASE_URL/client_balance?user_id=$CLIENT_ID"
+expect_status 404 'CLIENT_NOT_FOUND' "$BASE_URL/client_balance?user_id=999999999"
+expect_status 400 'INVALID_REQUEST' "$BASE_URL/client_balance?user_id=abc"
+
 echo "smoke passed"
