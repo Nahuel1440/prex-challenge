@@ -324,5 +324,5 @@ async fn restart_over_a_folder_with_files_1_and_7_continues_at_8() {
 
     let answer = post_store_balances(&app).await;
 
-    assert!(file_name_of(&answer).ends_with("_8.DAT"));
+    assert_file_counter(&answer, 8);
 }

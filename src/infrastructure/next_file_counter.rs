@@ -1,11 +1,11 @@
 //! Finds the number the next cut-off file gets, from the files already in the folder.
 
-/// Number given to the first cut-off file when the folder holds none.
-const FIRST_FILE_COUNTER: u64 = 1;
-
 use std::fs;
 use std::io;
 use std::path::Path;
+
+/// Number given to the first cut-off file when the folder holds none.
+const FIRST_FILE_COUNTER: u64 = 1;
 
 /// Digits of the `DDMMYYYY` part of a cut-off file name.
 const DATE_DIGITS: usize = 8;
