@@ -1,3 +1,5 @@
+//! Integration tests of `POST /new_client` through the real routes and error contract.
+
 use actix_http::Request;
 use actix_web::{
     dev::{Service, ServiceResponse},
@@ -183,4 +185,14 @@ async fn new_client_concurrent_requests_same_document_yield_exactly_one_201() {
     }
 
     assert_eq!(created, 1);
+}
+
+#[actix_web::test]
+async fn new_client_document_empty_after_normalization_returns_400_invalid_request() {
+    assert_invalid_request(body_with("document_number", json!(" . - "))).await;
+}
+
+#[actix_web::test]
+async fn new_client_birth_date_in_another_format_returns_400_invalid_request() {
+    assert_invalid_request(body_with("birth_date", json!("17/05/1990"))).await;
 }
