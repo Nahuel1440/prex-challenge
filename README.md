@@ -29,7 +29,7 @@ The image runs as a non-root user (uid 10001), listens on `0.0.0.0:8080` and wri
 | `HOST` | `127.0.0.1` | Interface to bind. The image sets `0.0.0.0`. |
 | `PORT` | `8080` | TCP port. A value that is not a port number stops the start with exit code 1. |
 | `CUT_OFF_DIR` | `./cut_off_files` | Folder for cut-off files. Created at start. The image sets `/data/cut_off_files`. |
-| `RUST_LOG` | `info` | Log filter (`tracing`). Every request is logged. |
+| `RUST_LOG` | `info` | Log filter (`tracing`). Requests are logged at `info`, so `warn` or `error` hides them. An invalid value falls back to `info`. |
 
 On a stop signal (SIGINT, SIGTERM) the server stops accepting requests and gives in-flight ones 10 seconds to finish.
 
@@ -62,7 +62,7 @@ curl -X POST localhost:8080/store_balances
 | Endpoint | Success | Notes |
 | --- | --- | --- |
 | `POST /new_client` | 201 `{client_id}` | Ids are integers from 1, in registration order. |
-| `POST /new_credit_transaction` | 200 `{client_id, balance}` | `credit_amount` greater than 0, at most 2 decimals. |
+| `POST /new_credit_transaction` | 200 `{client_id, balance}` | `credit_amount` greater than 0, at most 2 significant decimals (trailing zeros such as `1.500` are accepted). |
 | `POST /new_debit_transaction` | 200 `{client_id, balance}` | `debit_amount` as above. The balance may go negative. |
 | `GET /client_balance?user_id=N` | 200 profile and `balance` | `user_id` is the id from `new_client`. |
 | `POST /store_balances` | 200 `{file_name}` | No body. Runs the cut-off. |
@@ -73,7 +73,7 @@ curl -X POST localhost:8080/store_balances
 | Field | Rule |
 | --- | --- |
 | `client_name` | Trimmed, 1 to 100 characters, any Unicode. |
-| `birth_date` | `YYYY-MM-DD`, not after today (UTC). |
+| `birth_date` | `YYYY-MM-DD` (single-digit month and day are also accepted), not after today (UTC). |
 | `document_number` | `.`, `-` and whitespace removed, uppercased, only `A-Z` and `0-9` left. Unique after that: `12.345.678` and `12345678` clash. |
 | `country` | Trimmed, uppercased, must be an ISO 3166-1 alpha-2 code. |
 
@@ -84,7 +84,7 @@ Every error has the same body: `{"code": "CLIENT_NOT_FOUND", "message": "client 
 | Case | Status | `code` |
 | --- | --- | --- |
 | Malformed body, wrong field type, invalid client field, missing or non-integer `user_id`, amount that is not a plain decimal number (`1e2`) or is too large to read | 400 | `INVALID_REQUEST` |
-| Amount is 0, negative or has more than 2 decimals | 400 | `INVALID_AMOUNT` |
+| Amount is 0, negative, or has a non-zero digit past the 2nd decimal | 400 | `INVALID_AMOUNT` |
 | Client id does not exist | 404 | `CLIENT_NOT_FOUND` |
 | Document already registered | 409 | `DOCUMENT_ALREADY_REGISTERED` |
 | Movement would overflow the balance (beyond the `Decimal` range) | 422 | `BALANCE_OVERFLOW` |
@@ -94,7 +94,7 @@ Things that surprise people:
 
 - `INVALID_AMOUNT` is checked before `CLIENT_NOT_FOUND`. A bad amount for an unknown client gives 400, not 404.
 - Exponent notation is not an amount. `1e2` gives `INVALID_REQUEST`, and so does an amount sent as a JSON string (`"100.50"`).
-- More than 2 decimals is rejected, never rounded.
+- More than 2 decimals is rejected, never rounded. Trailing zeros are accepted and echoed in the response balance (`72.000`); the cut-off file normalizes them.
 - A 500 never shows paths or OS errors. The cause goes to the log.
 - Unknown routes and wrong methods get Actix's default answer, not this contract.
 
@@ -110,7 +110,7 @@ End-to-end, against a running server (local binary or container):
 | --- | --- |
 | Postman collection with newman | `npx --yes newman@6 run postman/prex-challenge.postman_collection.json --env-var base_url=http://127.0.0.1:8080` |
 | Shell smoke test | `BASE_URL=http://127.0.0.1:8080 scripts/smoke.sh` |
-| Cut-off file check (at least one file, no temp file left, every line `ID BALANCE` in normal form, ids increasing) | `scripts/check_cut_off_files.sh <cut_off_dir>` |
+| Cut-off file check (at least one file and one line in total, no temp file left, final newline, every line `ID BALANCE` in normal form, ids strictly increasing) | `scripts/check_cut_off_files.sh <cut_off_dir>` |
 
 `smoke.sh` runs the file check too when `CUT_OFF_DIR` points at the server's folder. For a server in a container, copy the files out with `docker cp` and run the check on them.
 
@@ -133,7 +133,7 @@ One crate, four layers as modules:
 | --- | --- |
 | `domain` | Client, amount and field rules. Pure: no Actix, Tokio or files. |
 | `application` | `ClientService` (use cases), `ClientStore` (the state), the `CutOffFileWriter` port, `AppError`. |
-| `infrastructure` | `FsCutOffFileWriter` and the startup scan of the cut-off folder. |
+| `infrastructure` | `FsCutOffFileWriter`, the startup scan for the next counter and the stale temp-file cleanup. |
 | `http` | Handlers, request and response shapes, the mapping from `AppError` to status and `code`. |
 
 `main` reads the settings, wires the layers and starts the server.
@@ -148,7 +148,7 @@ One crate, four layers as modules:
 ### Money
 
 - Amounts are `rust_decimal::Decimal`, parsed from the JSON text straight into a `Decimal`. A float would silently change `12345678901234567.89`.
-- At most 2 decimals, greater than 0. Credit and debit use checked arithmetic, so a result outside the `Decimal` range is `BALANCE_OVERFLOW`.
+- Greater than 0, with at most 2 significant decimals. Credit and debit use checked arithmetic, so a result outside the `Decimal` range is `BALANCE_OVERFLOW`.
 - A balance is the net position since the last cut-off, not available funds, so it may be negative.
 
 ### Cut-off
