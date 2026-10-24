@@ -10,7 +10,7 @@ mod error;
 
 pub use amount::{Amount, AmountError};
 pub use birth_date::BirthDate;
-pub use client::{Client, ClientId, NewClient};
+pub use client::{BalanceOverflow, Client, ClientId, NewClient};
 pub use client_name::ClientName;
 pub use country::Country;
 pub use document_number::DocumentNumber;
