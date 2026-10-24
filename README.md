@@ -35,7 +35,7 @@ On a stop signal (SIGINT, SIGTERM) the server stops accepting requests and gives
 
 ## API
 
-Paths are the ones in the challenge PDF. Every answer is JSON. Money is a JSON number, never a string.
+Paths are the ones in the challenge PDF. Every answer from a route is JSON. Money is a JSON number, never a string.
 
 ```bash
 H='Content-Type: application/json'
@@ -83,7 +83,7 @@ Every error has the same body: `{"code": "CLIENT_NOT_FOUND", "message": "client 
 
 | Case | Status | `code` |
 | --- | --- | --- |
-| Malformed body, wrong field type, invalid client field, missing or non-integer `user_id` | 400 | `INVALID_REQUEST` |
+| Malformed body, wrong field type, invalid client field, missing or non-integer `user_id`, amount that is not a plain decimal number (`1e2`) or is too large to read | 400 | `INVALID_REQUEST` |
 | Amount is 0, negative or has more than 2 decimals | 400 | `INVALID_AMOUNT` |
 | Client id does not exist | 404 | `CLIENT_NOT_FOUND` |
 | Document already registered | 409 | `DOCUMENT_ALREADY_REGISTERED` |
@@ -110,11 +110,11 @@ End-to-end, against a running server (local binary or container):
 | --- | --- |
 | Postman collection with newman | `npx --yes newman@6 run postman/prex-challenge.postman_collection.json --env-var base_url=http://127.0.0.1:8080` |
 | Shell smoke test | `BASE_URL=http://127.0.0.1:8080 scripts/smoke.sh` |
-| Cut-off file format check | `scripts/check_cut_off_files.sh <cut_off_dir>` |
+| Cut-off file check (at least one file, no temp file left, every line `ID BALANCE` in normal form, ids increasing) | `scripts/check_cut_off_files.sh <cut_off_dir>` |
 
 `smoke.sh` runs the file check too when `CUT_OFF_DIR` points at the server's folder. For a server in a container, copy the files out with `docker cp` and run the check on them.
 
-To use the collection in Postman, import `postman/prex-challenge.postman_collection.json` and run it with the Collection Runner. Folders go in order, one per endpoint, and later requests use `client_id` and `file_counter` saved by earlier ones. Change the `base_url` collection variable to target another host.
+In the Postman app, import the same file and use the Collection Runner. Run the folders in order: later requests use `client_id` and `file_counter` saved by earlier ones. Change the `base_url` variable to target another host.
 
 CI (GitHub Actions) runs on every pull request:
 
@@ -168,11 +168,12 @@ There is no timeout around the write. A timeout cancels the future but not the b
 
 `FsCutOffFileWriter` never shows a half-written file and never overwrites one:
 
-1. Write the content to `.tmp-<name>.tmp` in the same folder, created with `create_new`, and `fsync` it. That name can never match `DDMMYYYY_N.DAT`.
-2. `hard_link` the temp file to the final name. A hard link fails with `AlreadyExists` if the name is taken. A `rename` would silently replace an existing file.
-3. `fsync` the folder, so the new name is durable before the balances reset.
-4. Remove the temp file. After the link the file is published, so a failed removal is only a warning and the write still returns success. Otherwise the balances would stay in memory although they are in a published file.
-5. On any failure before the link, the temp file is removed. At start, temp files left by a crash are removed too.
+1. Remove any old temp file of the same name (a crash may have left one), then create `.tmp-<name>.tmp` in the same folder with `create_new`, write the content and `fsync` it. That name can never match `DDMMYYYY_N.DAT`, and `create_new` never writes through a link to another file.
+2. `hard_link` the temp file to the final name. A hard link fails with `AlreadyExists` if the name is taken. A `rename` would silently replace an existing file. A taken name is logged as an error that says an operator must act.
+3. Remove the temp file. After the link the file is published, so a failed removal is only a warning and the write still returns success. Otherwise the balances would stay in memory although they are in a published file. If the link failed, the temp file is removed too.
+4. `fsync` the folder, so the new name is durable. A failure here is also only a warning, for the same reason.
+
+At start, the service removes the temp files that a crash left in the folder.
 
 This is atomic publication, on filesystems that support hard links. It is not a transaction between memory and disk: a crash after the link and before the reset loses the memory anyway (see Limitations).
 
@@ -182,6 +183,7 @@ This is atomic publication, on filesystems that support hard links. It is not a 
 - At start, the service scans `CUT_OFF_DIR` for names like `DDMMYYYY_N.DAT` (any date) and starts at the highest `N` plus 1, or at 1 for an empty folder. Temp files and other names are ignored.
 - This is a small step away from the challenge text ("since the service started"). It protects old files after a restart.
 - A failed cut-off does not use a number, so there is no gap in the sequence.
+- The counter is checked: if the highest number on disk is the largest `u64`, the start fails. If the counter cannot advance at cut-off time, the cut-off fails with `CUT_OFF_FAILED` before it writes anything.
 
 ## Limitations
 
@@ -190,11 +192,11 @@ Accepted on purpose, to keep the scope to what the challenge asks.
 - **State is lost on restart.** Clients, balances and the id counter live in memory. A stop loses every client and every movement since the last cut-off. The files are results; the service never reads them back (only their names, for the counter).
 - **Ids repeat across runs.** `client_id` is an integer counter from 1 on every start, as the PDF types it. Ids in files of different runs can mean different clients.
 - **Single instance.** A second instance would hold a different set of clients and balances.
-- **Cut-offs block everything.** Every operation waits while the file is written, and the wait grows with the number of clients. There is no timeout (see Cut-off).
+- **Cut-offs block everything.** See Cut-off: no timeout, and a hung disk stops every operation.
 - **File line format is an assumption.** The PDF does not define padding, so ids are plain (`1`, not `01`) and balances are normalized (`70.5`, not `70.50`).
-- **Counter continues from the folder.** See File name and counter.
+- **Counter continues from the folder.** A small step away from "since the service started". See File name and counter.
 - **UTC date.** An issuer in UTC-3 that calls after 21:00 local time gets the next day in the file name. The date is read when the request arrives, before it waits for the lock, so a cut-off queued behind a slow one across UTC midnight can carry the previous day.
-- **A taken name blocks the cut-off.** If the next file name already exists on disk (for example a file copied in by hand), every retry fails with `CUT_OFF_FAILED` until an operator moves the file. A retry uses the same name by design, so nothing is overwritten. The log tells this case apart.
+- **A taken name blocks the cut-off.** If the next file name already exists on disk (for example a file copied in by hand), every retry fails with `CUT_OFF_FAILED` until an operator moves the file. A retry uses the same name by design, so nothing is overwritten. The log says this case apart from other write errors.
 - **Uniqueness uses the document alone**, as the PDF says.
 - **No authentication**, and no handling of unknown routes or methods beyond Actix defaults.
 
@@ -202,7 +204,7 @@ Accepted on purpose, to keep the scope to what the challenge asks.
 
 | Step | Why |
 | --- | --- |
-| Journal: append each client and movement to a file and `fsync` before answering, replay on start | Survives a restart. At the cut-off, rewrite the journal as a snapshot of every client (balance 0) and tag each confirmed cut-off with a sequence number, so a crash after the file but before the rewrite does not replay movements already stored. |
+| Journal: append each client and movement to a file and `fsync` before answering, replay on start | Survives a restart. At each cut-off, rewrite the journal as a snapshot of every client with balance 0. Number each confirmed cut-off, so a crash between the file and the rewrite does not replay movements that are already stored. |
 | Persistent id sequence (for example a database sequence) | Ids unique across restarts. |
 | Key clients by `(country, document_number)` | Two countries can issue the same number. |
 | Swap-and-merge cut-off | Swap the balances out under the lock and write the file outside it, so movements do not wait for the disk. On failure, merge back by adding. Needed if the file goes to slow or remote storage. |
