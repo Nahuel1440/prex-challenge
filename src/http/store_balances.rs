@@ -16,6 +16,9 @@ pub struct StoreBalancesResponse {
 ///
 /// The cut-off runs in its own task: if the client disconnects, Actix drops this handler but
 /// the task still finishes, so the file is never published without the balances being reset.
+///
+/// A task that ends without a result (it panicked) is reported as `CUT_OFF_FAILED`; the cause
+/// is logged because the outcome of the write is then unknown.
 pub async fn store_balances<W: CutOffFileWriter + 'static>(
     service: web::Data<ClientService<W>>,
 ) -> Result<HttpResponse, AppError> {

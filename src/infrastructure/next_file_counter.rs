@@ -47,6 +47,7 @@ fn file_counter_of(file_name: &str) -> Option<u64> {
         .flatten()
 }
 
+/// True for a non-empty text made only of the digits 0 to 9.
 fn is_all_digits(text: &str) -> bool {
     !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit())
 }
