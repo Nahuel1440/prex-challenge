@@ -1,11 +1,11 @@
 //! Finds the number the next cut-off file gets, from the files already in the folder.
 
-/// Number given to the first cut-off file when the folder holds none.
-const FIRST_FILE_COUNTER: u64 = 1;
-
 use std::fs;
 use std::io;
 use std::path::Path;
+
+/// Number given to the first cut-off file when the folder holds none.
+const FIRST_FILE_COUNTER: u64 = 1;
 
 /// Digits of the `DDMMYYYY` part of a cut-off file name.
 const DATE_DIGITS: usize = 8;
@@ -47,6 +47,7 @@ fn file_counter_of(file_name: &str) -> Option<u64> {
         .flatten()
 }
 
+/// True for a non-empty text made only of the digits 0 to 9.
 fn is_all_digits(text: &str) -> bool {
     !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit())
 }

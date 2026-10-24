@@ -1,7 +1,7 @@
 //! Integration tests of `POST /store_balances` with the real file system writer.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use actix_http::Request;
@@ -29,6 +29,9 @@ const CUT_OFF_FILE_NAME_PATTERN: &str = r"^\d{8}_\d+\.DAT$";
 const FIRST_CLIENT_ID: u64 = 1;
 /// Id of the second registered client.
 const SECOND_CLIENT_ID: u64 = 2;
+/// Number of the first cut-off file of a service that starts on an empty folder.
+const FIRST_FILE_COUNTER: u64 = 1;
+const STORE_BALANCES_URI: &str = "/store_balances";
 
 /// Answer of the endpoint: status and parsed JSON body.
 struct Answer {
@@ -39,7 +42,7 @@ struct Answer {
 fn service_writing_to(dir: &Path) -> Data<ClientService<FsCutOffFileWriter>> {
     Data::new(ClientService::new(
         FsCutOffFileWriter::new(dir.to_owned()),
-        1,
+        FIRST_FILE_COUNTER,
     ))
 }
 
@@ -107,7 +110,7 @@ where
     S: Service<Request, Response = ServiceResponse, Error = Error>,
 {
     let request = test::TestRequest::post()
-        .uri("/store_balances")
+        .uri(STORE_BALANCES_URI)
         .to_request();
     let response = test::call_service(app, request).await;
     let status = response.status();
@@ -130,8 +133,26 @@ where
     body["balance"].clone()
 }
 
+/// A folder that cannot receive files, because its path is a regular file.
+fn unusable_cut_off_dir(parent: &Path) -> PathBuf {
+    let path = parent.join("not_a_directory");
+    fs::write(&path, "").unwrap();
+
+    path
+}
+
 fn file_name_of(answer: &Answer) -> &str {
     answer.body["file_name"].as_str().unwrap()
+}
+
+fn is_cut_off_file_name(file_name: &str) -> bool {
+    Regex::new(CUT_OFF_FILE_NAME_PATTERN)
+        .unwrap()
+        .is_match(file_name)
+}
+
+fn assert_file_counter(answer: &Answer, expected_counter: u64) {
+    assert!(file_name_of(answer).ends_with(&format!("_{expected_counter}.DAT")));
 }
 
 #[actix_web::test]
@@ -142,9 +163,7 @@ async fn store_balances_returns_200_with_the_file_name() {
     let answer = post_store_balances(&app).await;
 
     assert_eq!(answer.status, StatusCode::OK);
-    assert!(Regex::new(CUT_OFF_FILE_NAME_PATTERN)
-        .unwrap()
-        .is_match(file_name_of(&answer)));
+    assert!(is_cut_off_file_name(file_name_of(&answer)));
 }
 
 #[actix_web::test]
@@ -179,16 +198,8 @@ async fn second_store_balances_uses_the_next_counter() {
     let first = post_store_balances(&app).await;
     let second = post_store_balances(&app).await;
 
-    assert!(file_name_of(&first).ends_with("_1.DAT"));
-    assert!(file_name_of(&second).ends_with("_2.DAT"));
-}
-
-/// A folder that cannot receive files, because its path is a regular file.
-fn unusable_cut_off_dir(parent: &Path) -> std::path::PathBuf {
-    let path = parent.join("not_a_directory");
-    fs::write(&path, "").unwrap();
-
-    path
+    assert_file_counter(&first, 1);
+    assert_file_counter(&second, 2);
 }
 
 #[actix_web::test]
@@ -216,7 +227,7 @@ async fn failed_store_balances_keeps_balances_and_the_next_success_reuses_the_co
     let retried = post_store_balances(&app).await;
 
     assert_eq!(failed.status, StatusCode::INTERNAL_SERVER_ERROR);
-    assert!(file_name_of(&retried).ends_with("_1.DAT"));
+    assert_file_counter(&retried, 1);
     let content = fs::read_to_string(cut_off_dir.join(file_name_of(&retried))).unwrap();
     assert_eq!(content, "1 500.12\n2 -3000\n");
 }
@@ -248,12 +259,12 @@ async fn store_balances_completes_when_the_caller_disconnects_mid_write() {
             write_released: write_released.clone(),
             inner: FsCutOffFileWriter::new(dir.path().to_owned()),
         },
-        1,
+        FIRST_FILE_COUNTER,
     ));
     let app = running_app(&service).await;
     register_clients_with_movements(&app).await;
     let request = test::TestRequest::post()
-        .uri("/store_balances")
+        .uri(STORE_BALANCES_URI)
         .to_request();
     let mut in_flight_call = Box::pin(test::call_service(&app, request));
 
@@ -264,11 +275,14 @@ async fn store_balances_completes_when_the_caller_disconnects_mid_write() {
     drop(in_flight_call);
     write_released.notify_one();
 
+    // `find` takes the same lock as the cut-off, so it answers only after the orphaned
+    // cut-off has finished.
     let first_client = service.find(ClientId::new(FIRST_CLIENT_ID)).await.unwrap();
     assert_eq!(first_client.balance, Decimal::ZERO);
+    // Lets the write of the next cut-off through; the permit is kept until it waits.
     write_released.notify_one();
     let next_cut_off = post_store_balances(&app).await;
-    assert!(file_name_of(&next_cut_off).ends_with("_2.DAT"));
+    assert_file_counter(&next_cut_off, 2);
 }
 
 /// Panics inside `write`, as a bug in an adapter would.
@@ -282,7 +296,7 @@ impl CutOffFileWriter for PanickingWriter {
 
 #[actix_web::test]
 async fn store_balances_returns_500_cut_off_failed_when_the_cut_off_task_panics() {
-    let service = Data::new(ClientService::new(PanickingWriter, 1));
+    let service = Data::new(ClientService::new(PanickingWriter, FIRST_FILE_COUNTER));
     let app = running_app(&service).await;
 
     let answer = post_store_balances(&app).await;
@@ -310,5 +324,5 @@ async fn restart_over_a_folder_with_files_1_and_7_continues_at_8() {
 
     let answer = post_store_balances(&app).await;
 
-    assert!(file_name_of(&answer).ends_with("_8.DAT"));
+    assert_file_counter(&answer, 8);
 }
