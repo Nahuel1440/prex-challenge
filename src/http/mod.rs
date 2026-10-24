@@ -5,6 +5,7 @@ mod error;
 mod health;
 mod movement;
 mod new_client;
+mod store_balances;
 
 use actix_web::web::{self, JsonConfig, QueryConfig, ServiceConfig};
 
@@ -32,5 +33,9 @@ pub fn configure<W: CutOffFileWriter + 'static>(service_config: &mut ServiceConf
         .route(
             "/new_debit_transaction",
             web::post().to(movement::new_debit_transaction::<W>),
+        )
+        .route(
+            "/store_balances",
+            web::post().to(store_balances::store_balances::<W>),
         );
 }
