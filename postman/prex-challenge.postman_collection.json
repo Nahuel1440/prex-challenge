@@ -384,6 +384,74 @@
               }
             }
           ]
+        },
+        {
+          "name": "debit amount 0 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/new_debit_transaction",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"client_id\": {{client_id}}, \"debit_amount\": 0 }"
+            },
+            "description": "A debit of zero is INVALID_AMOUNT."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test('code is INVALID_AMOUNT', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.code).to.eql('INVALID_AMOUNT');",
+                  "  pm.expect(body.message).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "debit unknown client 404",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/new_debit_transaction",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"client_id\": 999999999, \"debit_amount\": 10 }"
+            },
+            "description": "An unknown client is CLIENT_NOT_FOUND."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404', () => pm.response.to.have.status(404));",
+                  "pm.test('code is CLIENT_NOT_FOUND', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.code).to.eql('CLIENT_NOT_FOUND');",
+                  "  pm.expect(body.message).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
