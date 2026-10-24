@@ -60,3 +60,9 @@ jobs:
       - name: Stop the server
         if: always()
         run: kill "$SERVER_PID" || true
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --tag prex-challenge .
