@@ -13,11 +13,7 @@ use actix_web::{
     web::Data,
     App, Error,
 };
-use prex_processor::{
-    application::{ClientService, CutOffFileWriter},
-    http,
-    infrastructure::FsCutOffFileWriter,
-};
+use prex_processor::{application::ClientService, http, infrastructure::FsCutOffFileWriter};
 use serde_json::Value;
 
 /// Counter for tests that never run a cut-off, so any value works.
@@ -59,26 +55,17 @@ impl Answer {
     }
 }
 
-/// An app over the given service, with every route registered.
-pub async fn running_app_with<W: CutOffFileWriter + 'static>(
-    service: &Data<ClientService<W>>,
-) -> impl Service<Request, Response = ServiceResponse, Error = Error> {
+/// An app with every route registered, whose cut-off writer must never be called.
+pub async fn running_app() -> impl Service<Request, Response = ServiceResponse, Error = Error> {
     test::init_service(
         App::new()
-            .app_data(service.clone())
-            .configure(http::configure::<W>),
+            .app_data(Data::new(ClientService::new(
+                writer_that_is_never_used(),
+                FIRST_FILE_COUNTER,
+            )))
+            .configure(http::configure::<FsCutOffFileWriter>),
     )
     .await
-}
-
-/// An app whose cut-off writer must never be called.
-pub async fn running_app() -> impl Service<Request, Response = ServiceResponse, Error = Error> {
-    let service = Data::new(ClientService::new(
-        writer_that_is_never_used(),
-        FIRST_FILE_COUNTER,
-    ));
-
-    running_app_with(&service).await
 }
 
 /// Posts the body text as written, so `100.50` keeps its trailing zero.

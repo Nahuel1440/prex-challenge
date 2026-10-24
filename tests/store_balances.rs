@@ -1,7 +1,5 @@
 //! Integration tests of `POST /store_balances` with the real file system writer.
 
-mod common;
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -12,12 +10,12 @@ use actix_web::{
     http::StatusCode,
     test,
     web::Data,
-    Error,
+    App, Error,
 };
-use common::Answer;
 use prex_processor::{
     application::{ClientService, CutOffFileWriter, CutOffLine},
     domain::ClientId,
+    http,
     infrastructure::{next_file_counter_in_dir, FsCutOffFileWriter},
 };
 use regex::Regex;
@@ -35,6 +33,12 @@ const SECOND_CLIENT_ID: u64 = 2;
 const FIRST_FILE_COUNTER: u64 = 1;
 const STORE_BALANCES_URI: &str = "/store_balances";
 
+/// Answer of the endpoint: status and parsed JSON body.
+struct Answer {
+    status: StatusCode,
+    body: Value,
+}
+
 fn service_writing_to(dir: &Path) -> Data<ClientService<FsCutOffFileWriter>> {
     Data::new(ClientService::new(
         FsCutOffFileWriter::new(dir.to_owned()),
@@ -42,14 +46,38 @@ fn service_writing_to(dir: &Path) -> Data<ClientService<FsCutOffFileWriter>> {
     ))
 }
 
+async fn running_app<W: CutOffFileWriter + 'static>(
+    service: &Data<ClientService<W>>,
+) -> impl Service<Request, Response = ServiceResponse, Error = Error> {
+    test::init_service(
+        App::new()
+            .app_data(service.clone())
+            .configure(http::configure::<W>),
+    )
+    .await
+}
+
+async fn post_json<S>(app: &S, uri: &str, body_text: String)
+where
+    S: Service<Request, Response = ServiceResponse, Error = Error>,
+{
+    let request = test::TestRequest::post()
+        .uri(uri)
+        .insert_header(("content-type", "application/json"))
+        .set_payload(body_text)
+        .to_request();
+    let response = test::call_service(app, request).await;
+    assert!(response.status().is_success());
+}
+
 async fn register_client<S>(app: &S, document_number: &str)
 where
     S: Service<Request, Response = ServiceResponse, Error = Error>,
 {
-    common::post_json_expecting_success(
+    post_json(
         app,
         "/new_client",
-        &format!(
+        format!(
             r#"{{"client_name":"Ana Pérez","birth_date":"1990-05-17","document_number":"{document_number}","country":"AR"}}"#
         ),
     )
@@ -63,16 +91,16 @@ where
 {
     register_client(app, "11111111").await;
     register_client(app, "22222222").await;
-    common::post_json_expecting_success(
+    post_json(
         app,
         "/new_credit_transaction",
-        &format!(r#"{{"client_id":{FIRST_CLIENT_ID},"credit_amount":500.12}}"#),
+        format!(r#"{{"client_id":{FIRST_CLIENT_ID},"credit_amount":500.12}}"#),
     )
     .await;
-    common::post_json_expecting_success(
+    post_json(
         app,
         "/new_debit_transaction",
-        &format!(r#"{{"client_id":{SECOND_CLIENT_ID},"debit_amount":3000}}"#),
+        format!(r#"{{"client_id":{SECOND_CLIENT_ID},"debit_amount":3000}}"#),
     )
     .await;
 }
@@ -84,8 +112,13 @@ where
     let request = test::TestRequest::post()
         .uri(STORE_BALANCES_URI)
         .to_request();
+    let response = test::call_service(app, request).await;
+    let status = response.status();
 
-    Answer::from_response(test::call_service(app, request).await).await
+    Answer {
+        status,
+        body: test::read_body_json(response).await,
+    }
 }
 
 async fn balance_of<S>(app: &S, client_id: u64) -> Value
@@ -108,8 +141,8 @@ fn unusable_cut_off_dir(parent: &Path) -> PathBuf {
     path
 }
 
-fn file_name_of(answer: &Answer) -> String {
-    answer.body()["file_name"].as_str().unwrap().to_owned()
+fn file_name_of(answer: &Answer) -> &str {
+    answer.body["file_name"].as_str().unwrap()
 }
 
 fn is_cut_off_file_name(file_name: &str) -> bool {
@@ -125,18 +158,18 @@ fn assert_file_counter(answer: &Answer, expected_counter: u64) {
 #[actix_web::test]
 async fn store_balances_returns_200_with_the_file_name() {
     let dir = tempfile::tempdir().unwrap();
-    let app = common::running_app_with(&service_writing_to(dir.path())).await;
+    let app = running_app(&service_writing_to(dir.path())).await;
 
     let answer = post_store_balances(&app).await;
 
     assert_eq!(answer.status, StatusCode::OK);
-    assert!(is_cut_off_file_name(&file_name_of(&answer)));
+    assert!(is_cut_off_file_name(file_name_of(&answer)));
 }
 
 #[actix_web::test]
 async fn store_balances_writes_the_file_in_the_cut_off_dir() {
     let dir = tempfile::tempdir().unwrap();
-    let app = common::running_app_with(&service_writing_to(dir.path())).await;
+    let app = running_app(&service_writing_to(dir.path())).await;
     register_clients_with_movements(&app).await;
 
     let answer = post_store_balances(&app).await;
@@ -148,7 +181,7 @@ async fn store_balances_writes_the_file_in_the_cut_off_dir() {
 #[actix_web::test]
 async fn store_balances_resets_every_balance_to_zero() {
     let dir = tempfile::tempdir().unwrap();
-    let app = common::running_app_with(&service_writing_to(dir.path())).await;
+    let app = running_app(&service_writing_to(dir.path())).await;
     register_clients_with_movements(&app).await;
 
     post_store_balances(&app).await;
@@ -160,7 +193,7 @@ async fn store_balances_resets_every_balance_to_zero() {
 #[actix_web::test]
 async fn second_store_balances_uses_the_next_counter() {
     let dir = tempfile::tempdir().unwrap();
-    let app = common::running_app_with(&service_writing_to(dir.path())).await;
+    let app = running_app(&service_writing_to(dir.path())).await;
 
     let first = post_store_balances(&app).await;
     let second = post_store_balances(&app).await;
@@ -173,20 +206,20 @@ async fn second_store_balances_uses_the_next_counter() {
 async fn store_balances_returns_500_cut_off_failed_without_leaking_the_path() {
     let parent = tempfile::tempdir().unwrap();
     let unusable_dir = unusable_cut_off_dir(parent.path());
-    let app = common::running_app_with(&service_writing_to(&unusable_dir)).await;
+    let app = running_app(&service_writing_to(&unusable_dir)).await;
 
     let answer = post_store_balances(&app).await;
 
     assert_eq!(answer.status, StatusCode::INTERNAL_SERVER_ERROR);
-    assert_eq!(answer.body()["code"], "CUT_OFF_FAILED");
-    assert!(!answer.body_text.contains("not_a_directory"));
+    assert_eq!(answer.body["code"], "CUT_OFF_FAILED");
+    assert!(!answer.body.to_string().contains("not_a_directory"));
 }
 
 #[actix_web::test]
 async fn failed_store_balances_keeps_balances_and_the_next_success_reuses_the_counter() {
     let parent = tempfile::tempdir().unwrap();
     let cut_off_dir = parent.path().join("cut_off");
-    let app = common::running_app_with(&service_writing_to(&cut_off_dir)).await;
+    let app = running_app(&service_writing_to(&cut_off_dir)).await;
     register_clients_with_movements(&app).await;
 
     let failed = post_store_balances(&app).await;
@@ -228,7 +261,7 @@ async fn store_balances_completes_when_the_caller_disconnects_mid_write() {
         },
         FIRST_FILE_COUNTER,
     ));
-    let app = common::running_app_with(&service).await;
+    let app = running_app(&service).await;
     register_clients_with_movements(&app).await;
     let request = test::TestRequest::post()
         .uri(STORE_BALANCES_URI)
@@ -264,12 +297,12 @@ impl CutOffFileWriter for PanickingWriter {
 #[actix_web::test]
 async fn store_balances_returns_500_cut_off_failed_when_the_cut_off_task_panics() {
     let service = Data::new(ClientService::new(PanickingWriter, FIRST_FILE_COUNTER));
-    let app = common::running_app_with(&service).await;
+    let app = running_app(&service).await;
 
     let answer = post_store_balances(&app).await;
 
     assert_eq!(answer.status, StatusCode::INTERNAL_SERVER_ERROR);
-    assert_eq!(answer.body()["code"], "CUT_OFF_FAILED");
+    assert_eq!(answer.body["code"], "CUT_OFF_FAILED");
 }
 
 #[actix_web::test]
@@ -287,7 +320,7 @@ async fn restart_over_a_folder_with_files_1_and_7_continues_at_8() {
         FsCutOffFileWriter::new(dir.path().to_owned()),
         next_file_counter,
     ));
-    let app = common::running_app_with(&service).await;
+    let app = running_app(&service).await;
 
     let answer = post_store_balances(&app).await;
 
