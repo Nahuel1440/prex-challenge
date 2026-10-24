@@ -11,6 +11,11 @@ const TEMP_FILE_PREFIX: &str = ".tmp-";
 /// End of the name a file has while it is being written.
 const TEMP_FILE_SUFFIX: &str = ".tmp";
 
+/// True for a name a file only has while it is being written.
+pub(super) fn is_temp_file_name(file_name: &str) -> bool {
+    file_name.starts_with(TEMP_FILE_PREFIX) && file_name.ends_with(TEMP_FILE_SUFFIX)
+}
+
 /// Writes each cut-off as a file in one folder, one `ID BALANCE` line per client.
 ///
 /// The file appears complete or not at all: it is written under a temp name, flushed to disk

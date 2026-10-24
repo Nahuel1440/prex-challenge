@@ -16,15 +16,16 @@ const FILE_EXTENSION: &str = ".DAT";
 
 /// The number the next cut-off file gets, from the files already in `dir`.
 ///
-/// Fails if `dir` cannot be listed. Names that are not valid text are ignored.
+/// Fails if `dir` cannot be listed, or if its highest counter leaves no number to give.
+/// Names that are not valid text are ignored.
 pub fn next_file_counter_in_dir(dir: &Path) -> io::Result<u64> {
     let file_names = fs::read_dir(dir)?
         .map(|entry| entry.map(|entry| entry.file_name().into_string()))
         .collect::<io::Result<Vec<_>>>()?;
 
-    Ok(next_file_counter(
-        file_names.iter().filter_map(|name| name.as_deref().ok()),
-    ))
+    next_file_counter(file_names.iter().filter_map(|name| name.as_deref().ok())).ok_or_else(|| {
+        io::Error::other("the highest cut-off file counter in the folder cannot be increased")
+    })
 }
 
 /// The number after the highest `N` among names like `DDMMYYYY_N.DAT`, of any date.
