@@ -98,6 +98,7 @@ async fn get_client_balance_unknown_id_returns_404_client_not_found() {
     let answer = get_client_balance(&app, "?user_id=42").await;
 
     assert_eq!(answer.status, StatusCode::NOT_FOUND);
+    assert!(answer.content_type.starts_with("application/json"));
     assert_eq!(answer.body()["code"], "CLIENT_NOT_FOUND");
 }
 

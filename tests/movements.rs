@@ -199,3 +199,36 @@ async fn credit_amount_with_more_than_28_decimals_returns_400_invalid_amount() {
 
     assert_error(&answer, StatusCode::BAD_REQUEST, "INVALID_AMOUNT");
 }
+
+#[actix_web::test]
+async fn credit_client_id_as_string_returns_400_invalid_request() {
+    let app = app_with_one_client().await;
+
+    let answer = common::post_json(
+        &app,
+        CREDIT_URI,
+        r#"{"client_id":"abc","credit_amount":10}"#,
+    )
+    .await;
+
+    assert_error(&answer, StatusCode::BAD_REQUEST, "INVALID_REQUEST");
+}
+
+#[actix_web::test]
+async fn debit_below_decimal_min_returns_422_balance_overflow_and_balance_unchanged() {
+    let app = app_with_one_client().await;
+    common::post_json(&app, DEBIT_URI, &debit_body(1, DECIMAL_MAX)).await;
+
+    let overflow = common::post_json(&app, DEBIT_URI, &debit_body(1, "1")).await;
+    let balance_after = common::post_json(&app, CREDIT_URI, &credit_body(1, "1")).await;
+
+    assert_error(
+        &overflow,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "BALANCE_OVERFLOW",
+    );
+    assert_eq!(
+        balance_after.body_text,
+        balance_body(1, "-79228162514264337593543950334")
+    );
+}
