@@ -2,7 +2,7 @@
 
 use super::ClientFieldError;
 
-/// A document number without separators, in uppercase, with letters and digits only.
+/// A document number without separators, in uppercase, with ASCII letters and digits only.
 ///
 /// Two spellings of the same document (`12.345.678` and `12345678`) become equal.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -14,13 +14,13 @@ impl DocumentNumber {
         let normalized: String = raw
             .chars()
             .filter(|character| !is_separator(*character))
-            .flat_map(char::to_uppercase)
+            .map(|character| character.to_ascii_uppercase())
             .collect();
 
         if normalized.is_empty() {
             return Err(ClientFieldError::EmptyDocument);
         }
-        if !normalized.chars().all(is_letter_or_digit) {
+        if !normalized.chars().all(is_uppercase_ascii_alphanumeric) {
             return Err(ClientFieldError::InvalidDocumentCharacter);
         }
 
@@ -33,11 +33,13 @@ impl DocumentNumber {
     }
 }
 
+/// Dots, dashes and whitespace separate groups of digits and are dropped.
 fn is_separator(character: char) -> bool {
     character == '.' || character == '-' || character.is_whitespace()
 }
 
-fn is_letter_or_digit(character: char) -> bool {
+/// Runs after uppercasing, so lowercase letters are never seen here.
+fn is_uppercase_ascii_alphanumeric(character: char) -> bool {
     character.is_ascii_uppercase() || character.is_ascii_digit()
 }
 
@@ -70,6 +72,13 @@ mod tests {
             DocumentNumber::parse(" . - ").unwrap_err(),
             ClientFieldError::EmptyDocument
         );
+    }
+
+    #[test]
+    fn document_number_rejects_non_ascii_letters_that_uppercase_to_ascii() {
+        let error = DocumentNumber::parse("ß1").unwrap_err();
+
+        assert_eq!(error, ClientFieldError::InvalidDocumentCharacter);
     }
 
     #[test]

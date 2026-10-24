@@ -29,7 +29,7 @@ pub struct Country(String);
 impl Country {
     /// Trims and uppercases the text, then checks it against the ISO list.
     pub fn parse(raw: &str) -> Result<Self, ClientFieldError> {
-        let code = raw.trim().to_uppercase();
+        let code = raw.trim().to_ascii_uppercase();
 
         if !ISO_ALPHA2_CODES.contains(&code.as_str()) {
             return Err(ClientFieldError::UnknownCountry);
@@ -57,6 +57,14 @@ mod tests {
     #[test]
     fn country_accepts_known_iso_alpha2_code() {
         assert!(Country::parse("US").is_ok());
+    }
+
+    #[test]
+    fn country_rejects_non_ascii_letters_that_uppercase_to_a_valid_code() {
+        assert_eq!(
+            Country::parse("ın").unwrap_err(),
+            ClientFieldError::UnknownCountry
+        );
     }
 
     #[test]

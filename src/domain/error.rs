@@ -2,6 +2,8 @@
 
 use std::fmt;
 
+use super::client_name::MAX_CLIENT_NAME_CHARS;
+
 /// A client field that breaks a domain rule.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClientFieldError {
@@ -23,7 +25,12 @@ impl fmt::Display for ClientFieldError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let message = match self {
             Self::EmptyName => "client_name must not be empty",
-            Self::NameTooLong => "client_name must have at most 100 characters",
+            Self::NameTooLong => {
+                return write!(
+                    formatter,
+                    "client_name must have at most {MAX_CLIENT_NAME_CHARS} characters"
+                )
+            }
             Self::FutureBirthDate => "birth_date must not be in the future",
             Self::EmptyDocument => "document_number must not be empty",
             Self::InvalidDocumentCharacter => "document_number must only have letters and digits",
