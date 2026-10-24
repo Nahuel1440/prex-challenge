@@ -1,0 +1,172 @@
+//! Stores a cut-off as a text file in a folder.
+
+use std::fs::{self, File};
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
+
+use crate::application::{CutOffFileWriter, CutOffLine};
+
+/// Writes each cut-off as a file in one folder, one `ID BALANCE` line per client.
+///
+/// The file appears complete or not at all: it is written under a temp name, flushed to disk
+/// and then hard-linked to its final name. A hard link fails if the name is taken, so an
+/// existing cut-off file is never replaced.
+#[derive(Debug, Clone)]
+pub struct FsCutOffFileWriter {
+    dir: PathBuf,
+}
+
+impl FsCutOffFileWriter {
+    /// A writer that puts its files in `dir`, which must already exist.
+    pub fn new(dir: PathBuf) -> Self {
+        Self { dir }
+    }
+}
+
+impl CutOffFileWriter for FsCutOffFileWriter {
+    async fn write(&self, file_name: &str, lines: &[CutOffLine]) -> io::Result<()> {
+        let dir = self.dir.clone();
+        let file_name = file_name.to_owned();
+        let content = file_content(lines);
+
+        tokio::task::spawn_blocking(move || publish_file(&dir, &file_name, &content))
+            .await
+            .map_err(io::Error::other)?
+    }
+}
+
+/// The text of the file: `{id} {balance}\n` per line, balances without trailing zeros.
+fn file_content(lines: &[CutOffLine]) -> String {
+    lines
+        .iter()
+        .map(|line| format!("{} {}\n", line.client_id.value(), line.balance.normalize()))
+        .collect()
+}
+
+/// Makes `content` appear in `dir` under `file_name`, all at once.
+fn publish_file(dir: &Path, file_name: &str, content: &str) -> io::Result<()> {
+    let temp_path = dir.join(format!(".tmp-{file_name}.tmp"));
+    let final_path = dir.join(file_name);
+
+    let linked =
+        write_and_sync(&temp_path, content).and_then(|()| fs::hard_link(&temp_path, &final_path));
+    let removed = fs::remove_file(&temp_path);
+
+    if let Err(cause) = removed {
+        tracing::warn!(%cause, ?temp_path, "temp file of a cut-off could not be removed");
+    }
+
+    linked
+}
+
+fn write_and_sync(path: &Path, content: &str) -> io::Result<()> {
+    let mut file = File::create(path)?;
+    file.write_all(content.as_bytes())?;
+    file.sync_all()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::ClientId;
+    use rust_decimal::Decimal;
+    use std::fs;
+    use std::str::FromStr;
+
+    fn line(client_id: u64, balance: &str) -> CutOffLine {
+        CutOffLine {
+            client_id: ClientId::new(client_id),
+            balance: Decimal::from_str(balance).unwrap(),
+        }
+    }
+
+    fn file_names_in(dir: &std::path::Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+
+        names
+    }
+
+    #[tokio::test]
+    async fn writes_one_line_per_client_as_id_space_balance() {
+        let dir = tempfile::tempdir().unwrap();
+        let writer = FsCutOffFileWriter::new(dir.path().to_owned());
+
+        writer
+            .write("24102026_1.DAT", &[line(1, "500.12"), line(2, "-3000.00")])
+            .await
+            .unwrap();
+
+        let content = fs::read_to_string(dir.path().join("24102026_1.DAT")).unwrap();
+        assert_eq!(content, "1 500.12\n2 -3000\n");
+    }
+
+    #[tokio::test]
+    async fn writes_an_empty_file_when_there_are_no_clients() {
+        let dir = tempfile::tempdir().unwrap();
+        let writer = FsCutOffFileWriter::new(dir.path().to_owned());
+
+        writer.write("24102026_1.DAT", &[]).await.unwrap();
+
+        let content = fs::read_to_string(dir.path().join("24102026_1.DAT")).unwrap();
+        assert_eq!(content, "");
+    }
+
+    #[tokio::test]
+    async fn never_overwrites_an_existing_cut_off_file() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("24102026_1.DAT"), "1 10\n").unwrap();
+        let writer = FsCutOffFileWriter::new(dir.path().to_owned());
+
+        let outcome = writer.write("24102026_1.DAT", &[line(1, "99")]).await;
+
+        assert_eq!(
+            outcome.unwrap_err().kind(),
+            std::io::ErrorKind::AlreadyExists
+        );
+        let content = fs::read_to_string(dir.path().join("24102026_1.DAT")).unwrap();
+        assert_eq!(content, "1 10\n");
+    }
+
+    #[tokio::test]
+    async fn leaves_no_temp_file_after_a_successful_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let writer = FsCutOffFileWriter::new(dir.path().to_owned());
+
+        writer
+            .write("24102026_1.DAT", &[line(1, "5")])
+            .await
+            .unwrap();
+
+        assert_eq!(file_names_in(dir.path()), ["24102026_1.DAT"]);
+    }
+
+    #[tokio::test]
+    async fn leaves_no_temp_file_after_a_failed_write() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("24102026_1.DAT"), "1 10\n").unwrap();
+        let writer = FsCutOffFileWriter::new(dir.path().to_owned());
+
+        writer
+            .write("24102026_1.DAT", &[line(1, "99")])
+            .await
+            .unwrap_err();
+
+        assert_eq!(file_names_in(dir.path()), ["24102026_1.DAT"]);
+    }
+
+    #[tokio::test]
+    async fn fails_when_the_directory_cannot_be_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let not_a_directory = dir.path().join("occupied");
+        fs::write(&not_a_directory, "").unwrap();
+        let writer = FsCutOffFileWriter::new(not_a_directory);
+
+        let outcome = writer.write("24102026_1.DAT", &[line(1, "5")]).await;
+
+        assert!(outcome.is_err());
+    }
+}
