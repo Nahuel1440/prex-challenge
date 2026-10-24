@@ -11,9 +11,9 @@ use actix_web::{
 use prex_processor::{application::ClientService, http, infrastructure::UnwiredCutOffFileWriter};
 use serde_json::Value;
 
-/// Id of the first registered client, Ana.
 /// Cut-off is not under test here; any counter works.
 const FIRST_FILE_COUNTER: u64 = 1;
+/// Id of the first registered client, Ana.
 const ANA_ID: u64 = 1;
 
 /// Answer of the endpoint: status, content type and the body exactly as sent on the wire.
