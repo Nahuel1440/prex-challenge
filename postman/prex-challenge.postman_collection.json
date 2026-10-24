@@ -120,6 +120,204 @@
           }
         }
       ]
+    },
+    {
+      "name": "credit 100.50 -> balance 100.50",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{base_url}}/new_credit_transaction",
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"client_id\": {{client_id}}, \"credit_amount\": 100.50 }"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', () => pm.response.to.have.status(200));",
+              "pm.test('body has client_id and balance 100.50', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body.client_id).to.eql(Number(pm.collectionVariables.get('client_id')));",
+              "  pm.expect(pm.response.text()).to.include('\"balance\":100.50');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "debit 30 -> balance 70.50",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{base_url}}/new_debit_transaction",
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"client_id\": {{client_id}}, \"debit_amount\": 30 }"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', () => pm.response.to.have.status(200));",
+              "pm.test('body has client_id and balance 70.50', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body.client_id).to.eql(Number(pm.collectionVariables.get('client_id')));",
+              "  pm.expect(pm.response.text()).to.include('\"balance\":70.50');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "debit 1000 -> negative balance -929.50",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{base_url}}/new_debit_transaction",
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"client_id\": {{client_id}}, \"debit_amount\": 1000 }"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', () => pm.response.to.have.status(200));",
+              "pm.test('body has client_id and balance -929.50', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body.client_id).to.eql(Number(pm.collectionVariables.get('client_id')));",
+              "  pm.expect(pm.response.text()).to.include('\"balance\":-929.50');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "credit amount 0 400",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{base_url}}/new_credit_transaction",
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"client_id\": {{client_id}}, \"credit_amount\": 0 }"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 400', () => pm.response.to.have.status(400));",
+              "pm.test('code is INVALID_AMOUNT', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body.code).to.eql('INVALID_AMOUNT');",
+              "  pm.expect(body.message).to.be.a('string');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "credit amount as string 400",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{base_url}}/new_credit_transaction",
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"client_id\": {{client_id}}, \"credit_amount\": \"100.50\" }"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 400', () => pm.response.to.have.status(400));",
+              "pm.test('code is INVALID_REQUEST', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body.code).to.eql('INVALID_REQUEST');",
+              "  pm.expect(body.message).to.be.a('string');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "credit unknown client 404",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{base_url}}/new_credit_transaction",
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"client_id\": 999999999, \"credit_amount\": 10 }"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 404', () => pm.response.to.have.status(404));",
+              "pm.test('code is CLIENT_NOT_FOUND', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body.code).to.eql('CLIENT_NOT_FOUND');",
+              "  pm.expect(body.message).to.be.a('string');",
+              "});"
+            ]
+          }
+        }
+      ]
     }
   ]
 }

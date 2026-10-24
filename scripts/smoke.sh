@@ -29,6 +29,22 @@ set_new_client_request() {
   curl_args=(--request POST --header 'Content-Type: application/json' --data "$1" "$BASE_URL/new_client")
 }
 
+# expect_movement <status> <body fragment> <path> <json body>
+expect_movement() {
+  local expected_status="$1" expected_fragment="$2" path="$3" body="$4"
+  expect_status "$expected_status" "$expected_fragment" \
+    --request POST --header 'Content-Type: application/json' --data "$body" "$BASE_URL$path"
+}
+
+# Registers a client and prints its id, read from {"client_id":N}.
+register_client_for_movements() {
+  local response
+  response="$(curl --silent --request POST --header 'Content-Type: application/json' \
+    --data "$(new_client_body 'Movement Client' "MOVE$(date +%s)${RANDOM}")" "$BASE_URL/new_client")"
+  response="${response#*:}"
+  echo "${response%\}*}"
+}
+
 expect_status 200 '"status":"ok"' "$BASE_URL/health"
 
 set_new_client_request "$(new_client_body 'Ana Perez' "$DOCUMENT_NUMBER")"
@@ -39,5 +55,13 @@ expect_status 409 'DOCUMENT_ALREADY_REGISTERED' "${curl_args[@]}"
 
 set_new_client_request "$(new_client_body '   ' '123')"
 expect_status 400 'INVALID_REQUEST' "${curl_args[@]}"
+
+CLIENT_ID="$(register_client_for_movements)"
+expect_movement 200 '"balance":100.50' /new_credit_transaction "{\"client_id\":$CLIENT_ID,\"credit_amount\":100.50}"
+expect_movement 200 '"balance":70.50' /new_debit_transaction "{\"client_id\":$CLIENT_ID,\"debit_amount\":30}"
+expect_movement 200 '"balance":-929.50' /new_debit_transaction "{\"client_id\":$CLIENT_ID,\"debit_amount\":1000}"
+expect_movement 400 'INVALID_AMOUNT' /new_credit_transaction "{\"client_id\":$CLIENT_ID,\"credit_amount\":0}"
+expect_movement 400 'INVALID_REQUEST' /new_credit_transaction "{\"client_id\":$CLIENT_ID,\"credit_amount\":\"100.50\"}"
+expect_movement 404 'CLIENT_NOT_FOUND' /new_credit_transaction '{"client_id":999999999,"credit_amount":10}'
 
 echo "smoke passed"
