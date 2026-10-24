@@ -2,7 +2,6 @@
 
 use std::future::Future;
 
-use chrono::{Datelike, NaiveDate};
 use rust_decimal::Decimal;
 
 use crate::domain::ClientId;
@@ -29,17 +28,4 @@ pub trait CutOffFileWriter {
         file_name: &str,
         lines: &[CutOffLine],
     ) -> impl Future<Output = std::io::Result<()>> + Send;
-}
-
-/// The name of the cut-off file of `date` (UTC) with sequence number `file_counter`.
-///
-/// Looks like `24102026_1.DAT`: day, month, four-digit year, then the counter.
-pub(super) fn cut_off_file_name(date: NaiveDate, file_counter: u64) -> String {
-    format!(
-        "{:02}{:02}{:04}_{}.DAT",
-        date.day(),
-        date.month(),
-        date.year(),
-        file_counter
-    )
 }

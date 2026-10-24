@@ -4,7 +4,7 @@ use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use tokio::sync::Mutex;
 
-use super::cut_off_file_writer::cut_off_file_name;
+use super::cut_off_file_name::cut_off_file_name;
 use super::{AppError, ClientStore, ClientView, CutOffFileWriter};
 use crate::domain::{Amount, ClientId, NewClient};
 
@@ -111,7 +111,7 @@ impl<W: CutOffFileWriter> ClientService<W> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::application::fake_cut_off_file_writer::FakeCutOffFileWriter;
+    use crate::application::fake_cut_off_file_writer::{FakeCutOffFileWriter, RecordedWrite};
     use crate::application::{AppError, CutOffLine};
     use crate::domain::ClientId;
     use chrono::NaiveDate;
@@ -132,8 +132,12 @@ mod tests {
         ClientService::new(FakeCutOffFileWriter::default(), next_file_counter)
     }
 
+    fn date(year: i32, month: u32, day: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(year, month, day).unwrap()
+    }
+
     fn today() -> NaiveDate {
-        NaiveDate::from_ymd_opt(2026, 10, 24).unwrap()
+        date(2026, 10, 24)
     }
 
     fn registration_with_document(document_number: &str) -> ClientRegistration {
@@ -246,17 +250,28 @@ mod tests {
         Decimal::from_str(text).unwrap()
     }
 
-    async fn registered_client(service: &TestService) -> ClientId {
+    fn line(client_id: u64, text: &str) -> CutOffLine {
+        CutOffLine {
+            client_id: ClientId::new(client_id),
+            balance: balance(text),
+        }
+    }
+
+    async fn registered_client(service: &TestService, document: &str) -> ClientId {
         service
-            .register(registration_with_document("1"), today())
+            .register(registration_with_document(document), today())
             .await
             .unwrap()
+    }
+
+    async fn balance_of(service: &TestService, client_id: ClientId) -> Decimal {
+        service.find(client_id).await.unwrap().balance
     }
 
     #[tokio::test]
     async fn credit_then_debit_return_the_new_balance() {
         let service = service();
-        let client_id = registered_client(&service).await;
+        let client_id = registered_client(&service, "1").await;
 
         let after_credit = service.credit(client_id, amount("100.50")).await;
         let after_debit = service.debit(client_id, amount("30")).await;
@@ -288,7 +303,7 @@ mod tests {
     #[tokio::test]
     async fn credit_overflow_returns_balance_overflow_and_balance_unchanged() {
         let service = service();
-        let client_id = registered_client(&service).await;
+        let client_id = registered_client(&service, "1").await;
         let near_max = Amount::try_from(Decimal::MAX).unwrap();
         service.credit(client_id, near_max).await.unwrap();
 
@@ -302,7 +317,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn concurrent_credits_on_one_client_sum_exactly() {
         let service = Arc::new(service());
-        let client_id = registered_client(&service).await;
+        let client_id = registered_client(&service, "1").await;
 
         let tasks: Vec<_> = (0..CONCURRENT_MOVEMENTS)
             .map(|_| {
@@ -344,7 +359,7 @@ mod tests {
     #[tokio::test]
     async fn find_reflects_the_balance_after_credit_and_debit() {
         let service = service();
-        let client_id = registered_client(&service).await;
+        let client_id = registered_client(&service, "1").await;
         service.credit(client_id, amount("100.50")).await.unwrap();
         service.debit(client_id, amount("30")).await.unwrap();
 
@@ -363,36 +378,17 @@ mod tests {
         assert_eq!(error.unwrap_err(), AppError::ClientNotFound(unknown));
     }
 
-    fn cut_off_day(year: i32, month: u32, day: u32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(year, month, day).unwrap()
-    }
-
-    fn line(client_id: u64, text: &str) -> CutOffLine {
-        CutOffLine {
-            client_id: ClientId::new(client_id),
-            balance: balance(text),
-        }
-    }
-
-    async fn register_client(service: &TestService, document: &str) -> ClientId {
-        service
-            .register(registration_with_document(document), today())
-            .await
-            .unwrap()
-    }
-
-    async fn balance_of(service: &TestService, client_id: ClientId) -> Decimal {
-        service.find(client_id).await.unwrap().balance
-    }
-
     #[tokio::test]
     async fn store_balances_names_the_file_from_the_utc_date_and_counter() {
         let service = service();
 
-        let file_name = service.store_balances(cut_off_day(2026, 10, 24)).await;
+        let file_name = service.store_balances(date(2026, 10, 24)).await;
 
         assert_eq!(file_name.unwrap(), "24102026_1.DAT");
-        assert_eq!(service.writer.recorded_writes()[0].0, "24102026_1.DAT");
+        assert_eq!(
+            service.writer.recorded_writes()[0].file_name,
+            "24102026_1.DAT"
+        );
     }
 
     #[tokio::test]
@@ -400,7 +396,7 @@ mod tests {
         const CLIENTS: u64 = 20;
         let service = service();
         for number in 1..=CLIENTS {
-            let client_id = register_client(&service, &number.to_string()).await;
+            let client_id = registered_client(&service, &number.to_string()).await;
             service
                 .credit(client_id, amount(&number.to_string()))
                 .await
@@ -412,21 +408,21 @@ mod tests {
         let expected: Vec<CutOffLine> = (1..=CLIENTS)
             .map(|number| line(number, &number.to_string()))
             .collect();
-        assert_eq!(service.writer.recorded_writes()[0].1, expected);
+        assert_eq!(service.writer.recorded_writes()[0].lines, expected);
     }
 
     #[tokio::test]
     async fn store_balances_resets_every_balance_to_zero_after_a_successful_write() {
         let service = service();
-        let creditor = register_client(&service, "1").await;
-        let debtor = register_client(&service, "2").await;
+        let creditor = registered_client(&service, "1").await;
+        let debtor = registered_client(&service, "2").await;
         service.credit(creditor, amount("500.12")).await.unwrap();
         service.debit(debtor, amount("3000")).await.unwrap();
 
         service.store_balances(today()).await.unwrap();
 
         assert_eq!(
-            service.writer.recorded_writes()[0].1,
+            service.writer.recorded_writes()[0].lines,
             [line(1, "500.12"), line(2, "-3000")]
         );
         assert_eq!(balance_of(&service, creditor).await, Decimal::ZERO);
@@ -452,16 +448,19 @@ mod tests {
 
         assert_eq!(
             service.writer.recorded_writes(),
-            [("24102026_1.DAT".to_owned(), Vec::new())]
+            [RecordedWrite {
+                file_name: "24102026_1.DAT".to_owned(),
+                lines: Vec::new(),
+            }]
         );
     }
 
     #[tokio::test]
     async fn store_balances_failure_returns_cut_off_failed_and_keeps_every_balance() {
         let service = service();
-        let client_id = register_client(&service, "1").await;
+        let client_id = registered_client(&service, "1").await;
         service.credit(client_id, amount("500.12")).await.unwrap();
-        service.writer.fail_next_writes();
+        service.writer.fail_writes();
 
         let error = service.store_balances(today()).await;
 
@@ -472,9 +471,9 @@ mod tests {
     #[tokio::test]
     async fn store_balances_failure_keeps_the_counter_so_the_next_success_reuses_it() {
         let service = service();
-        service.writer.fail_next_writes();
+        service.writer.fail_writes();
         service.store_balances(today()).await.unwrap_err();
-        service.writer.succeed_next_writes();
+        service.writer.succeed_writes();
 
         let file_name = service.store_balances(today()).await;
 
@@ -485,8 +484,8 @@ mod tests {
     async fn store_balances_follows_the_date_across_a_day_change() {
         let service = service();
 
-        let last_day = service.store_balances(cut_off_day(2026, 12, 31)).await;
-        let first_day = service.store_balances(cut_off_day(2027, 1, 1)).await;
+        let last_day = service.store_balances(date(2026, 12, 31)).await;
+        let first_day = service.store_balances(date(2027, 1, 1)).await;
 
         assert_eq!(last_day.unwrap(), "31122026_1.DAT");
         assert_eq!(first_day.unwrap(), "01012027_2.DAT");

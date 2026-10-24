@@ -7,7 +7,13 @@ use std::sync::Mutex;
 use super::{CutOffFileWriter, CutOffLine};
 
 /// One call to `write`: the file name and the lines it received.
-pub type RecordedWrite = (String, Vec<CutOffLine>);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordedWrite {
+    /// Name the application chose for the file.
+    pub file_name: String,
+    /// Lines in the order the application sent them.
+    pub lines: Vec<CutOffLine>,
+}
 
 /// Records the calls it gets; fails every call while told to.
 #[derive(Debug, Default)]
@@ -22,13 +28,13 @@ impl FakeCutOffFileWriter {
         self.recorded_writes.lock().unwrap().clone()
     }
 
-    /// Makes every following call fail until `succeed_next_writes`.
-    pub fn fail_next_writes(&self) {
+    /// Makes every following call fail until `succeed_writes`.
+    pub fn fail_writes(&self) {
         self.failing.store(true, Ordering::SeqCst);
     }
 
     /// Makes the following calls succeed again.
-    pub fn succeed_next_writes(&self) {
+    pub fn succeed_writes(&self) {
         self.failing.store(false, Ordering::SeqCst);
     }
 }
@@ -38,10 +44,10 @@ impl CutOffFileWriter for FakeCutOffFileWriter {
         if self.failing.load(Ordering::SeqCst) {
             return Err(io::Error::other("the fake writer was told to fail"));
         }
-        self.recorded_writes
-            .lock()
-            .unwrap()
-            .push((file_name.to_owned(), lines.to_vec()));
+        self.recorded_writes.lock().unwrap().push(RecordedWrite {
+            file_name: file_name.to_owned(),
+            lines: lines.to_vec(),
+        });
 
         Ok(())
     }

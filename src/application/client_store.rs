@@ -77,7 +77,7 @@ impl ClientStore {
                 balance: client.balance,
             })
             .collect();
-        lines.sort_by_key(|line| line.client_id.value());
+        lines.sort_unstable_by_key(|line| line.client_id);
 
         lines
     }

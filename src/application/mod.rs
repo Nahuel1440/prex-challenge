@@ -3,6 +3,7 @@
 mod client_service;
 mod client_store;
 mod client_view;
+mod cut_off_file_name;
 mod cut_off_file_writer;
 mod error;
 #[cfg(test)]
