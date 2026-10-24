@@ -25,19 +25,19 @@ new_client_body() {
   printf '{"client_name":"%s","birth_date":"1990-05-17","document_number":"%s","country":"AR"}' "$1" "$2"
 }
 
-post_new_client() {
+set_new_client_request() {
   curl_args=(--request POST --header 'Content-Type: application/json' --data "$1" "$BASE_URL/new_client")
 }
 
 expect_status 200 '"status":"ok"' "$BASE_URL/health"
 
-post_new_client "$(new_client_body 'Ana Perez' "$DOCUMENT_NUMBER")"
+set_new_client_request "$(new_client_body 'Ana Perez' "$DOCUMENT_NUMBER")"
 expect_status 201 '"client_id"' "${curl_args[@]}"
 
-post_new_client "$(new_client_body 'Other Person' "$DOCUMENT_NUMBER")"
+set_new_client_request "$(new_client_body 'Other Person' "$DOCUMENT_NUMBER")"
 expect_status 409 'DOCUMENT_ALREADY_REGISTERED' "${curl_args[@]}"
 
-post_new_client "$(new_client_body '   ' '123')"
+set_new_client_request "$(new_client_body '   ' '123')"
 expect_status 400 'INVALID_REQUEST' "${curl_args[@]}"
 
 echo "smoke passed"

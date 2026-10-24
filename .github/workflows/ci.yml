@@ -27,6 +27,9 @@ jobs:
       - run: cargo test --locked
 
   e2e:
+    env:
+      BASE_URL: http://127.0.0.1:8080
+      HEALTH_WAIT_SECONDS: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,16 +43,16 @@ jobs:
           echo "SERVER_PID=$!" >> "$GITHUB_ENV"
       - name: Wait for /health
         run: |
-          for attempt in $(seq 1 30); do
-            curl --silent --fail http://127.0.0.1:8080/health && exit 0
+          for attempt in $(seq 1 "$HEALTH_WAIT_SECONDS"); do
+            curl --silent --fail "$BASE_URL/health" && exit 0
             sleep 1
           done
-          echo "server did not become healthy in 30 s" >&2
+          echo "server did not become healthy in $HEALTH_WAIT_SECONDS s" >&2
           exit 1
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npx --yes newman@6 run postman/prex-challenge.postman_collection.json
+      - run: npx --yes newman@6 run postman/prex-challenge.postman_collection.json --env-var "base_url=$BASE_URL"
       - name: Stop the server
         if: always()
         run: kill "$SERVER_PID" || true
