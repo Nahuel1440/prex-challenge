@@ -79,6 +79,11 @@ pub struct Client {
 }
 
 impl Client {
+    /// Sets the balance back to zero, after the cut-off stored it.
+    pub fn reset_balance(&mut self) {
+        self.balance = Decimal::ZERO;
+    }
+
     /// Registers `profile` under `id` with a zero balance.
     pub fn open(id: ClientId, profile: NewClient) -> Self {
         Self {

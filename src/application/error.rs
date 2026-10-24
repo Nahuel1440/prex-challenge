@@ -17,6 +17,10 @@ pub enum AppError {
     ClientNotFound(ClientId),
     /// The movement would take the balance outside the range of `Decimal`.
     BalanceOverflow,
+    /// The cut-off file could not be written; balances and counter were left unchanged.
+    ///
+    /// Carries no cause on purpose: the cause is logged, never shown to the issuer.
+    CutOffFailed,
 }
 
 impl fmt::Display for AppError {
@@ -31,6 +35,7 @@ impl fmt::Display for AppError {
                 write!(formatter, "client {} does not exist", client_id.value())
             }
             Self::BalanceOverflow => write!(formatter, "{BalanceOverflow}"),
+            Self::CutOffFailed => formatter.write_str("the cut-off file could not be stored"),
         }
     }
 }

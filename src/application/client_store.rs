@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use super::AppError;
+use super::{AppError, CutOffLine};
 use crate::domain::{Client, ClientId, DocumentNumber, NewClient};
 
 /// First id given to a client.
@@ -17,7 +17,6 @@ pub struct ClientStore {
     clients: HashMap<ClientId, Client>,
     document_index: HashMap<DocumentNumber, ClientId>,
     next_client_id: u64,
-    #[expect(dead_code, reason = "used by store_balances in the next PR")]
     next_file_counter: u64,
 }
 
@@ -61,5 +60,31 @@ impl ClientStore {
     /// The client with this id, if any.
     pub fn find(&self, client_id: ClientId) -> Option<&Client> {
         self.clients.get(&client_id)
+    }
+
+    /// Number of the next cut-off file.
+    pub fn next_file_counter(&self) -> u64 {
+        self.next_file_counter
+    }
+
+    /// The balance of every client, sorted by client id.
+    pub fn cut_off_lines(&self) -> Vec<CutOffLine> {
+        let mut lines: Vec<CutOffLine> = self
+            .clients
+            .values()
+            .map(|client| CutOffLine {
+                client_id: client.id,
+                balance: client.balance,
+            })
+            .collect();
+        lines.sort_by_key(|line| line.client_id.value());
+
+        lines
+    }
+
+    /// Closes a cut-off whose file was written: every balance back to zero, next file number.
+    pub fn complete_cut_off(&mut self) {
+        self.clients.values_mut().for_each(Client::reset_balance);
+        self.next_file_counter += 1;
     }
 }
