@@ -1,7 +1,7 @@
 //! The error contract: how an `AppError` becomes an HTTP response.
 
 use actix_web::{
-    error::{JsonPayloadError, ResponseError},
+    error::{JsonPayloadError, QueryPayloadError, ResponseError},
     http::StatusCode,
     HttpRequest, HttpResponse,
 };
@@ -51,5 +51,10 @@ impl ResponseError for AppError {
 
 /// Turns a body that is not valid JSON, or does not fit the DTO, into `INVALID_REQUEST`.
 pub fn invalid_json_body(error: JsonPayloadError, _request: &HttpRequest) -> actix_web::Error {
+    AppError::InvalidRequest(error.to_string()).into()
+}
+
+/// Turns a missing or non-integer query parameter into `INVALID_REQUEST`.
+pub fn invalid_query_string(error: QueryPayloadError, _request: &HttpRequest) -> actix_web::Error {
     AppError::InvalidRequest(error.to_string()).into()
 }
