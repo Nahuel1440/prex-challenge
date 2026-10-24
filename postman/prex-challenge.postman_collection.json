@@ -7,7 +7,8 @@
     { "key": "base_url", "value": "http://127.0.0.1:8080" },
     { "key": "client_id", "value": "" },
     { "key": "document_number", "value": "" },
-    { "key": "same_document_other_format", "value": "" }
+    { "key": "same_document_other_format", "value": "" },
+    { "key": "file_counter", "value": "" }
   ],
   "item": [
     {
@@ -390,6 +391,75 @@
               "  const body = pm.response.json();",
               "  pm.expect(body.code).to.eql('INVALID_REQUEST');",
               "  pm.expect(body.message).to.be.a('string');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "store_balances 200 with the cut-off file name",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": "{{base_url}}/store_balances"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', () => pm.response.to.have.status(200));",
+              "pm.test('file_name looks like DDMMYYYY_N.DAT', () => {",
+              "  const match = /^\\d{8}_(\\d+)\\.DAT$/.exec(pm.response.json().file_name);",
+              "  pm.expect(match, 'file_name').to.not.equal(null);",
+              "  pm.collectionVariables.set('file_counter', match[1]);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "client_balance is 0 after the cut-off",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{base_url}}/client_balance?user_id={{client_id}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', () => pm.response.to.have.status(200));",
+              "pm.test('balance was reset to 0', () => pm.expect(pm.response.json().balance).to.eql(0));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "store_balances again uses the next counter",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": "{{base_url}}/store_balances"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', () => pm.response.to.have.status(200));",
+              "pm.test('file_name looks like DDMMYYYY_N.DAT', () => {",
+              "  const match = /^\\d{8}_(\\d+)\\.DAT$/.exec(pm.response.json().file_name);",
+              "  pm.expect(match, 'file_name').to.not.equal(null);",
+              "  const previous = Number(pm.collectionVariables.get('file_counter'));",
+              "  pm.expect(Number(match[1])).to.eql(previous + 1);",
               "});"
             ]
           }
