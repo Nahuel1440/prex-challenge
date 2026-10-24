@@ -10,7 +10,7 @@ use actix_web::{
     web::Data,
     App, Error,
 };
-use prex_processor::{application::ClientService, http, infrastructure::UnwiredCutOffFileWriter};
+use prex_processor::{application::ClientService, http, infrastructure::FsCutOffFileWriter};
 use serde_json::Value;
 
 /// Id of the first registered client, Ana.
@@ -36,7 +36,7 @@ async fn running_app() -> impl Service<Request, Response = ServiceResponse, Erro
                 common::writer_that_is_never_used(),
                 common::FIRST_FILE_COUNTER,
             )))
-            .configure(http::configure::<UnwiredCutOffFileWriter>),
+            .configure(http::configure::<FsCutOffFileWriter>),
     )
     .await
 }

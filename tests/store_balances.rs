@@ -16,7 +16,7 @@ use prex_processor::{
     application::{ClientService, CutOffFileWriter, CutOffLine},
     domain::ClientId,
     http,
-    infrastructure::FsCutOffFileWriter,
+    infrastructure::{next_file_counter_in_dir, FsCutOffFileWriter},
 };
 use regex::Regex;
 use rust_decimal::Decimal;
@@ -289,4 +289,26 @@ async fn store_balances_returns_500_cut_off_failed_when_the_cut_off_task_panics(
 
     assert_eq!(answer.status, StatusCode::INTERNAL_SERVER_ERROR);
     assert_eq!(answer.body["code"], "CUT_OFF_FAILED");
+}
+
+#[actix_web::test]
+async fn restart_over_a_folder_with_files_1_and_7_continues_at_8() {
+    let dir = tempfile::tempdir().unwrap();
+    for existing_name in [
+        "24102026_1.DAT",
+        "25102026_7.DAT",
+        ".tmp-25102026_9.DAT.tmp",
+    ] {
+        fs::write(dir.path().join(existing_name), "").unwrap();
+    }
+    let next_file_counter = next_file_counter_in_dir(dir.path()).unwrap();
+    let service = Data::new(ClientService::new(
+        FsCutOffFileWriter::new(dir.path().to_owned()),
+        next_file_counter,
+    ));
+    let app = running_app(&service).await;
+
+    let answer = post_store_balances(&app).await;
+
+    assert!(file_name_of(&answer).ends_with("_8.DAT"));
 }

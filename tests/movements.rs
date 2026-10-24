@@ -10,7 +10,7 @@ use actix_web::{
     web::Data,
     App, Error,
 };
-use prex_processor::{application::ClientService, http, infrastructure::UnwiredCutOffFileWriter};
+use prex_processor::{application::ClientService, http, infrastructure::FsCutOffFileWriter};
 use serde_json::{json, Value};
 
 const CREDIT_URI: &str = "/new_credit_transaction";
@@ -37,7 +37,7 @@ async fn app_with_one_client() -> impl Service<Request, Response = ServiceRespon
                 common::writer_that_is_never_used(),
                 common::FIRST_FILE_COUNTER,
             )))
-            .configure(http::configure::<UnwiredCutOffFileWriter>),
+            .configure(http::configure::<FsCutOffFileWriter>),
     )
     .await;
     let register = test::TestRequest::post()
