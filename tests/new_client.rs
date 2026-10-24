@@ -1,5 +1,7 @@
 //! Integration tests of `POST /new_client` through the real routes and error contract.
 
+mod common;
+
 use actix_http::Request;
 use actix_web::{
     dev::{Service, ServiceResponse},
@@ -12,8 +14,6 @@ use prex_processor::{application::ClientService, http, infrastructure::UnwiredCu
 use serde_json::{json, Value};
 use std::rc::Rc;
 
-/// Cut-off is not under test here; any counter works.
-const FIRST_FILE_COUNTER: u64 = 1;
 const CONCURRENT_REQUESTS: usize = 20;
 
 fn valid_body_with_document(document_number: &str) -> Value {
@@ -35,8 +35,8 @@ async fn running_app() -> impl Service<Request, Response = ServiceResponse, Erro
     test::init_service(
         App::new()
             .app_data(Data::new(ClientService::new(
-                UnwiredCutOffFileWriter,
-                FIRST_FILE_COUNTER,
+                common::writer_that_is_never_used(),
+                common::FIRST_FILE_COUNTER,
             )))
             .configure(http::configure::<UnwiredCutOffFileWriter>),
     )

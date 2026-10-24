@@ -1,5 +1,7 @@
 //! Integration tests of `POST /new_credit_transaction` and `POST /new_debit_transaction`.
 
+mod common;
+
 use actix_http::Request;
 use actix_web::{
     dev::{Service, ServiceResponse},
@@ -11,8 +13,6 @@ use actix_web::{
 use prex_processor::{application::ClientService, http, infrastructure::UnwiredCutOffFileWriter};
 use serde_json::{json, Value};
 
-/// Cut-off is not under test here; any counter works.
-const FIRST_FILE_COUNTER: u64 = 1;
 const CREDIT_URI: &str = "/new_credit_transaction";
 const DEBIT_URI: &str = "/new_debit_transaction";
 /// Largest `Decimal` value, written out because JSON numbers keep every digit.
@@ -34,8 +34,8 @@ async fn app_with_one_client() -> impl Service<Request, Response = ServiceRespon
     let app = test::init_service(
         App::new()
             .app_data(Data::new(ClientService::new(
-                UnwiredCutOffFileWriter,
-                FIRST_FILE_COUNTER,
+                common::writer_that_is_never_used(),
+                common::FIRST_FILE_COUNTER,
             )))
             .configure(http::configure::<UnwiredCutOffFileWriter>),
     )

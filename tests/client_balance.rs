@@ -1,5 +1,7 @@
 //! Integration tests of `GET /client_balance`.
 
+mod common;
+
 use actix_http::Request;
 use actix_web::{
     dev::{Service, ServiceResponse},
@@ -11,8 +13,6 @@ use actix_web::{
 use prex_processor::{application::ClientService, http, infrastructure::UnwiredCutOffFileWriter};
 use serde_json::Value;
 
-/// Cut-off is not under test here; any counter works.
-const FIRST_FILE_COUNTER: u64 = 1;
 /// Id of the first registered client, Ana.
 const ANA_ID: u64 = 1;
 
@@ -33,8 +33,8 @@ async fn running_app() -> impl Service<Request, Response = ServiceResponse, Erro
     test::init_service(
         App::new()
             .app_data(Data::new(ClientService::new(
-                UnwiredCutOffFileWriter,
-                FIRST_FILE_COUNTER,
+                common::writer_that_is_never_used(),
+                common::FIRST_FILE_COUNTER,
             )))
             .configure(http::configure::<UnwiredCutOffFileWriter>),
     )
