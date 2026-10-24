@@ -30,7 +30,9 @@ impl fmt::Display for ConfigError {
         match self {
             Self::InvalidPort(value) => write!(
                 formatter,
-                "PORT must be a number between 0 and 65535, got {value:?}"
+                "PORT must be a number between {} and {}, got {value:?}",
+                u16::MIN,
+                u16::MAX
             ),
         }
     }

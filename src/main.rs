@@ -1,14 +1,20 @@
+//! Entry point: reads settings, starts logging and serves HTTP until a stop signal.
+
 use actix_web::{middleware::Logger, App, HttpServer};
 use prex_processor::{config::Settings, http};
 use tracing_subscriber::EnvFilter;
 
+/// Time in-flight requests get to finish after a stop signal.
 const SHUTDOWN_TIMEOUT_SECONDS: u64 = 10;
+/// Log level used when `RUST_LOG` is not set.
+const DEFAULT_LOG_FILTER: &str = "info";
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new(DEFAULT_LOG_FILTER)),
         )
         .init();
 
