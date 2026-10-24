@@ -226,3 +226,17 @@ async fn large_amount_round_trips_without_precision_loss() {
     assert_eq!(answer.status, StatusCode::OK);
     assert_eq!(answer.body_text, balance_body(1, "12345678901234567.89"));
 }
+
+#[actix_web::test]
+async fn credit_amount_with_more_than_28_decimals_returns_400_invalid_amount() {
+    let app = app_with_one_client().await;
+
+    let answer = post_raw(
+        &app,
+        CREDIT_URI,
+        &credit_body(1, "1.00000000000000000000000000001"),
+    )
+    .await;
+
+    assert_error(&answer, StatusCode::BAD_REQUEST, "INVALID_AMOUNT");
+}
