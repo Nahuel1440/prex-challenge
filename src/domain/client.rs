@@ -4,12 +4,12 @@ use std::fmt;
 
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::{Amount, BirthDate, ClientFieldError, ClientName, Country, DocumentNumber};
 
 /// Identifier of a client, unique within one run of the service.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ClientId(u64);
 
 impl ClientId {
