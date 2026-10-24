@@ -26,11 +26,11 @@ impl fmt::Display for AppError {
             Self::DocumentAlreadyRegistered => {
                 formatter.write_str("a client with this document_number already exists")
             }
-            Self::InvalidAmount(error) => error.fmt(formatter),
+            Self::InvalidAmount(error) => write!(formatter, "{error}"),
             Self::ClientNotFound(client_id) => {
                 write!(formatter, "client {} does not exist", client_id.value())
             }
-            Self::BalanceOverflow => BalanceOverflow.fmt(formatter),
+            Self::BalanceOverflow => write!(formatter, "{BalanceOverflow}"),
         }
     }
 }
