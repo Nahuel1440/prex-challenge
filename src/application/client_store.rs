@@ -49,6 +49,13 @@ impl ClientStore {
         Ok(client_id)
     }
 
+    /// The client with this id, open for a balance change.
+    pub fn client_mut(&mut self, client_id: ClientId) -> Result<&mut Client, AppError> {
+        self.clients
+            .get_mut(&client_id)
+            .ok_or(AppError::ClientNotFound(client_id))
+    }
+
     /// The client with this id, if any.
     pub fn find(&self, client_id: ClientId) -> Option<&Client> {
         self.clients.get(&client_id)
