@@ -17,8 +17,9 @@ pub struct CutOffLine {
 
 /// Stores the lines of one cut-off under a file name chosen by the application.
 ///
-/// The adapter owns the line format and the place where the file lives.
-pub trait CutOffFileWriter {
+/// The adapter owns the line format and the place where the file lives. It is `Send + Sync`
+/// because the cut-off runs in its own task.
+pub trait CutOffFileWriter: Send + Sync {
     /// Writes the whole file or nothing. Never overwrites an existing file.
     ///
     /// Declared with `impl Future + Send` instead of `async fn` so callers can rely on `Send`;
