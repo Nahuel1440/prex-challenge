@@ -55,7 +55,7 @@ impl NewClient {
     }
 }
 
-/// A movement that would leave the balance outside the range of `Decimal`.
+/// A movement whose resulting balance cannot be represented exactly by `Decimal`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BalanceOverflow;
 
@@ -88,22 +88,16 @@ impl Client {
         }
     }
 
-    /// Adds `amount` to the balance; the balance is unchanged if it would overflow.
+    /// Adds `amount` exactly; leaves the balance unchanged on overflow or precision loss.
     pub fn credit(&mut self, amount: Amount) -> Result<(), BalanceOverflow> {
-        self.balance = self
-            .balance
-            .checked_add(amount.value())
-            .ok_or(BalanceOverflow)?;
+        self.balance = exact_balance_sum(self.balance, amount.value())?;
 
         Ok(())
     }
 
-    /// Subtracts `amount` from the balance, which may go negative; unchanged if it would overflow.
+    /// Subtracts `amount` exactly, allowing negative balances; unchanged if not representable.
     pub fn debit(&mut self, amount: Amount) -> Result<(), BalanceOverflow> {
-        self.balance = self
-            .balance
-            .checked_sub(amount.value())
-            .ok_or(BalanceOverflow)?;
+        self.balance = exact_balance_sum(self.balance, -amount.value())?;
 
         Ok(())
     }
@@ -112,6 +106,28 @@ impl Client {
     pub fn reset_balance(&mut self) {
         self.balance = Decimal::ZERO;
     }
+}
+
+/// Verifies the checked result without changing its scale or rounding it again.
+fn exact_balance_sum(balance: Decimal, change: Decimal) -> Result<Decimal, BalanceOverflow> {
+    let candidate = balance.checked_add(change).ok_or(BalanceOverflow)?;
+    let scale = balance.normalize().scale().max(change.normalize().scale());
+    let aligned_mantissa = |value: Decimal| {
+        let normalized = value.normalize();
+        let factor = 10_i128.checked_pow(scale.checked_sub(normalized.scale())?)?;
+        normalized.mantissa().checked_mul(factor)
+    };
+
+    // Decimal's checked arithmetic may round when its 96-bit mantissa is full.
+    // With at most two significant decimals, the exact sum fits in i128 instead.
+    let left = aligned_mantissa(balance).ok_or(BalanceOverflow)?;
+    let right = aligned_mantissa(change).ok_or(BalanceOverflow)?;
+    let expected = left.checked_add(right).ok_or(BalanceOverflow)?;
+    if aligned_mantissa(candidate) != Some(expected) {
+        return Err(BalanceOverflow);
+    }
+
+    Ok(candidate)
 }
 
 #[cfg(test)]
@@ -200,5 +216,112 @@ mod tests {
 
         assert_eq!(error, BalanceOverflow);
         assert_eq!(client.balance, Decimal::MIN);
+    }
+
+    #[test]
+    fn credit_precision_loss_fails_with_balance_overflow_and_keeps_balance() {
+        for initial in [
+            Decimal::MAX,
+            Decimal::MIN,
+            Decimal::from_str("792281625142643375935439503.35").unwrap(),
+        ] {
+            let mut client = client_with_balance(initial);
+
+            let result = client.credit(amount("0.01"));
+
+            assert_eq!(result, Err(BalanceOverflow), "initial balance: {initial}");
+            assert_eq!(client.balance, initial);
+        }
+    }
+
+    #[test]
+    fn debit_precision_loss_fails_with_balance_overflow_and_keeps_balance() {
+        for initial in [
+            Decimal::MAX,
+            Decimal::MIN,
+            Decimal::from_str("-792281625142643375935439503.35").unwrap(),
+        ] {
+            let mut client = client_with_balance(initial);
+
+            let result = client.debit(amount("0.01"));
+
+            assert_eq!(result, Err(BalanceOverflow), "initial balance: {initial}");
+            assert_eq!(client.balance, initial);
+        }
+    }
+
+    #[test]
+    fn credit_accepts_exact_high_magnitude_sums_carries_and_cancellation() {
+        for (initial, movement, expected) in [
+            (
+                "792281625142643375935439503.34",
+                "0.01",
+                "792281625142643375935439503.35",
+            ),
+            (
+                "792281625142643375935439503.35",
+                "0.65",
+                "792281625142643375935439504",
+            ),
+            (
+                "79228162514264337593543950334",
+                "1",
+                "79228162514264337593543950335",
+            ),
+            (
+                "-79228162514264337593543950335",
+                "79228162514264337593543950335",
+                "0",
+            ),
+        ] {
+            let mut client = client_with_balance(Decimal::from_str(initial).unwrap());
+
+            client.credit(amount(movement)).unwrap();
+
+            assert_eq!(client.balance, Decimal::from_str(expected).unwrap());
+        }
+    }
+
+    #[test]
+    fn debit_accepts_exact_high_magnitude_differences_carries_and_cancellation() {
+        for (initial, movement, expected) in [
+            (
+                "-792281625142643375935439503.34",
+                "0.01",
+                "-792281625142643375935439503.35",
+            ),
+            (
+                "-792281625142643375935439503.35",
+                "0.65",
+                "-792281625142643375935439504",
+            ),
+            (
+                "-79228162514264337593543950334",
+                "1",
+                "-79228162514264337593543950335",
+            ),
+            (
+                "79228162514264337593543950335",
+                "79228162514264337593543950335",
+                "0",
+            ),
+        ] {
+            let mut client = client_with_balance(Decimal::from_str(initial).unwrap());
+
+            client.debit(amount(movement)).unwrap();
+
+            assert_eq!(client.balance, Decimal::from_str(expected).unwrap());
+        }
+    }
+
+    #[test]
+    fn exact_movements_preserve_trailing_zero_scale() {
+        let mut client = client_with_balance(Decimal::ZERO);
+
+        client.credit(amount("72.000")).unwrap();
+        assert_eq!(client.balance.to_string(), "72.000");
+
+        client.debit(amount("1.0")).unwrap();
+        assert_eq!(client.balance.to_string(), "71.000");
     }
 }

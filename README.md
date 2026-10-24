@@ -87,7 +87,7 @@ Every error has the same body: `{"code": "CLIENT_NOT_FOUND", "message": "client 
 | Amount is 0, negative, or has a non-zero digit past the 2nd decimal | 400 | `INVALID_AMOUNT` |
 | Client id does not exist | 404 | `CLIENT_NOT_FOUND` |
 | Document already registered | 409 | `DOCUMENT_ALREADY_REGISTERED` |
-| Movement would overflow the balance (beyond the `Decimal` range) | 422 | `BALANCE_OVERFLOW` |
+| Movement would exceed the `Decimal` range or lose precision | 422 | `BALANCE_OVERFLOW` |
 | Cut-off file could not be written | 500 | `CUT_OFF_FAILED` |
 
 Things that surprise people:
@@ -148,7 +148,9 @@ One crate, four layers as modules:
 ### Money
 
 - Amounts are `rust_decimal::Decimal`, parsed from the JSON text straight into a `Decimal`. A float would silently change `12345678901234567.89`.
-- Greater than 0, with at most 2 significant decimals. Credit and debit use checked arithmetic, so a result outside the `Decimal` range is `BALANCE_OVERFLOW`.
+- Greater than 0, with at most 2 significant decimals.
+- Every accepted movement is exact. Checked `Decimal` arithmetic can still round near its precision limit, so the result is also verified using exact integer arithmetic before the balance changes. An out-of-range or inexact result gives 422 `BALANCE_OVERFLOW` and leaves the balance unchanged.
+- Safe whole-number operations through `Decimal::MAX` remain supported. A `0.01` debit from that balance is rejected because the exact result cannot fit, rather than succeeding without subtracting the cent. Successful responses keep the checked result's existing scale, including trailing zeros when representable.
 - A balance is the net position since the last cut-off, not available funds, so it may be negative.
 
 ### Cut-off
