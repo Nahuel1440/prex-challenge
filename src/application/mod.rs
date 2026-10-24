@@ -1,4 +1,4 @@
-//! Use cases that orchestrate the domain and the ports.
+//! Use cases that orchestrate the domain over the in-memory store.
 
 mod client_service;
 mod client_store;

@@ -124,8 +124,8 @@ mod tests {
         assert_eq!(error.unwrap_err(), AppError::DocumentAlreadyRegistered);
         let store = service.store.lock().await;
         let stored = store.find(first_id).unwrap();
-        assert_eq!(stored.data.document_number.as_str(), "12345678");
-        assert_eq!(stored.data.country.as_str(), "AR");
+        assert_eq!(stored.profile.document_number.as_str(), "12345678");
+        assert_eq!(stored.profile.country.as_str(), "AR");
     }
 
     #[tokio::test]
@@ -145,7 +145,7 @@ mod tests {
         assert_eq!(next_id.unwrap(), ClientId::new(1));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn concurrent_registrations_with_same_document_yield_exactly_one_success() {
         let service = Arc::new(ClientService::new());
 

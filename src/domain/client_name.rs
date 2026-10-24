@@ -3,9 +3,9 @@
 use super::ClientFieldError;
 
 /// Most characters a client name may have.
-const MAX_CLIENT_NAME_CHARS: usize = 100;
+pub(super) const MAX_CLIENT_NAME_CHARS: usize = 100;
 
-/// A trimmed, non-empty client name of at most 100 characters.
+/// A trimmed, non-empty client name of at most `MAX_CLIENT_NAME_CHARS` characters.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientName(String);
 
@@ -57,18 +57,18 @@ mod tests {
 
     #[test]
     fn client_name_accepts_exactly_100_characters() {
-        assert!(ClientName::parse(&"a".repeat(100)).is_ok());
+        assert!(ClientName::parse(&"a".repeat(MAX_CLIENT_NAME_CHARS)).is_ok());
     }
 
     #[test]
     fn client_name_rejects_more_than_100_characters() {
-        let error = ClientName::parse(&"a".repeat(101)).unwrap_err();
+        let error = ClientName::parse(&"a".repeat(MAX_CLIENT_NAME_CHARS + 1)).unwrap_err();
 
         assert_eq!(error, ClientFieldError::NameTooLong);
     }
 
     #[test]
     fn client_name_counts_unicode_characters_not_bytes() {
-        assert!(ClientName::parse(&"ñ".repeat(100)).is_ok());
+        assert!(ClientName::parse(&"ñ".repeat(MAX_CLIENT_NAME_CHARS)).is_ok());
     }
 }

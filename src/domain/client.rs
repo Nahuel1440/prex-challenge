@@ -59,17 +59,17 @@ pub struct Client {
     /// Identifier given at registration.
     pub id: ClientId,
     /// Validated personal data.
-    pub data: NewClient,
+    pub profile: NewClient,
     /// Net balance since the last cut-off; starts at zero and can be negative.
     pub balance: Decimal,
 }
 
 impl Client {
-    /// Registers `data` under `id` with a zero balance.
-    pub fn open(id: ClientId, data: NewClient) -> Self {
+    /// Registers `profile` under `id` with a zero balance.
+    pub fn open(id: ClientId, profile: NewClient) -> Self {
         Self {
             id,
-            data,
+            profile,
             balance: Decimal::ZERO,
         }
     }
