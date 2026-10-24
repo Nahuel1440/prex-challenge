@@ -6,11 +6,8 @@ use actix_http::Request;
 use actix_web::{
     dev::{Service, ServiceResponse},
     http::StatusCode,
-    test,
-    web::Data,
-    App, Error,
+    test, Error,
 };
-use prex_processor::{application::ClientService, http, infrastructure::FsCutOffFileWriter};
 use serde_json::{json, Value};
 use std::rc::Rc;
 
@@ -31,18 +28,6 @@ fn body_with(field: &str, value: Value) -> Value {
     body
 }
 
-async fn running_app() -> impl Service<Request, Response = ServiceResponse, Error = Error> {
-    test::init_service(
-        App::new()
-            .app_data(Data::new(ClientService::new(
-                common::writer_that_is_never_used(),
-                common::FIRST_FILE_COUNTER,
-            )))
-            .configure(http::configure::<FsCutOffFileWriter>),
-    )
-    .await
-}
-
 async fn post_new_client<S>(app: &S, body: &Value) -> (StatusCode, Value)
 where
     S: Service<Request, Response = ServiceResponse, Error = Error>,
@@ -58,7 +43,7 @@ where
 }
 
 async fn assert_invalid_request(body: Value) {
-    let app = running_app().await;
+    let app = common::running_app().await;
 
     let (status, response_body) = post_new_client(&app, &body).await;
 
@@ -68,7 +53,7 @@ async fn assert_invalid_request(body: Value) {
 
 #[actix_web::test]
 async fn new_client_returns_201_with_client_id() {
-    let app = running_app().await;
+    let app = common::running_app().await;
 
     let (status, body) = post_new_client(&app, &valid_body_with_document("12345678")).await;
 
@@ -78,7 +63,7 @@ async fn new_client_returns_201_with_client_id() {
 
 #[actix_web::test]
 async fn new_client_assigns_ids_1_2_3_in_order() {
-    let app = running_app().await;
+    let app = common::running_app().await;
     let mut ids = Vec::new();
 
     for document_number in ["1", "2", "3"] {
@@ -91,7 +76,7 @@ async fn new_client_assigns_ids_1_2_3_in_order() {
 
 #[actix_web::test]
 async fn new_client_duplicate_normalized_document_returns_409_document_already_registered() {
-    let app = running_app().await;
+    let app = common::running_app().await;
     post_new_client(&app, &valid_body_with_document("12.345.678")).await;
 
     let (status, body) = post_new_client(&app, &valid_body_with_document("12345678")).await;
@@ -127,7 +112,7 @@ async fn new_client_document_with_other_symbols_returns_400_invalid_request() {
 
 #[actix_web::test]
 async fn new_client_malformed_json_returns_400_invalid_request_with_json_body() {
-    let app = running_app().await;
+    let app = common::running_app().await;
     let request = test::TestRequest::post()
         .uri("/new_client")
         .insert_header(("content-type", "application/json"))
@@ -151,7 +136,7 @@ async fn new_client_missing_field_returns_400_invalid_request() {
 
 #[actix_web::test]
 async fn new_client_accepts_lowercase_country() {
-    let app = running_app().await;
+    let app = common::running_app().await;
 
     let (status, _) = post_new_client(&app, &body_with("country", json!("ar"))).await;
 
@@ -160,7 +145,7 @@ async fn new_client_accepts_lowercase_country() {
 
 #[actix_web::test]
 async fn error_response_body_has_code_and_message() {
-    let app = running_app().await;
+    let app = common::running_app().await;
 
     let (_, body) = post_new_client(&app, &body_with("country", json!("ZZ"))).await;
 
@@ -172,7 +157,7 @@ async fn error_response_body_has_code_and_message() {
 
 #[actix_web::test]
 async fn new_client_concurrent_requests_same_document_yield_exactly_one_201() {
-    let app = Rc::new(running_app().await);
+    let app = Rc::new(common::running_app().await);
 
     let requests: Vec<_> = (0..CONCURRENT_REQUESTS)
         .map(|_| {
