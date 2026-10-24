@@ -12,6 +12,7 @@ use actix_web::{
     web::Data,
     App, Error,
 };
+use chrono::Utc;
 use prex_processor::{
     application::{ClientService, CutOffFileWriter, CutOffLine},
     domain::ClientId,
@@ -20,7 +21,7 @@ use prex_processor::{
 };
 use regex::Regex;
 use rust_decimal::Decimal;
-use serde_json::Value;
+use serde_json::{json, Value};
 use tokio::sync::Notify;
 
 /// A cut-off file name, `DDMMYYYY_N.DAT`.
@@ -31,6 +32,8 @@ const FIRST_CLIENT_ID: u64 = 1;
 const SECOND_CLIENT_ID: u64 = 2;
 /// Number of the first cut-off file of a service that starts on an empty folder.
 const FIRST_FILE_COUNTER: u64 = 1;
+/// The only text of a failed cut-off; it names no path and no system error.
+const CUT_OFF_FAILED_MESSAGE: &str = "the cut-off file could not be stored";
 const STORE_BALANCES_URI: &str = "/store_balances";
 
 /// Answer of the endpoint: status and parsed JSON body.
@@ -191,6 +194,19 @@ async fn store_balances_resets_every_balance_to_zero() {
 }
 
 #[actix_web::test]
+async fn store_balances_names_the_file_with_todays_utc_date() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = running_app(&service_writing_to(dir.path())).await;
+
+    let date_before_call = Utc::now().format("%d%m%Y").to_string();
+    let answer = post_store_balances(&app).await;
+    let date_after_call = Utc::now().format("%d%m%Y").to_string();
+
+    let file_name = file_name_of(&answer);
+    assert!(file_name.starts_with(&date_before_call) || file_name.starts_with(&date_after_call));
+}
+
+#[actix_web::test]
 async fn second_store_balances_uses_the_next_counter() {
     let dir = tempfile::tempdir().unwrap();
     let app = running_app(&service_writing_to(dir.path())).await;
@@ -211,8 +227,10 @@ async fn store_balances_returns_500_cut_off_failed_without_leaking_the_path() {
     let answer = post_store_balances(&app).await;
 
     assert_eq!(answer.status, StatusCode::INTERNAL_SERVER_ERROR);
-    assert_eq!(answer.body["code"], "CUT_OFF_FAILED");
-    assert!(!answer.body.to_string().contains("not_a_directory"));
+    assert_eq!(
+        answer.body,
+        json!({ "code": "CUT_OFF_FAILED", "message": CUT_OFF_FAILED_MESSAGE })
+    );
 }
 
 #[actix_web::test]

@@ -16,25 +16,28 @@ const FILE_EXTENSION: &str = ".DAT";
 
 /// The number the next cut-off file gets, from the files already in `dir`.
 ///
-/// Fails if `dir` cannot be listed. Names that are not valid text are ignored.
+/// Fails if `dir` cannot be listed, or if its highest counter leaves no number to give.
+/// Names that are not valid text are ignored.
 pub fn next_file_counter_in_dir(dir: &Path) -> io::Result<u64> {
     let file_names = fs::read_dir(dir)?
         .map(|entry| entry.map(|entry| entry.file_name().into_string()))
         .collect::<io::Result<Vec<_>>>()?;
 
-    Ok(next_file_counter(
-        file_names.iter().filter_map(|name| name.as_deref().ok()),
-    ))
+    next_file_counter(file_names.iter().filter_map(|name| name.as_deref().ok())).ok_or_else(|| {
+        io::Error::other("the highest cut-off file counter in the folder cannot be increased")
+    })
 }
 
 /// The number after the highest `N` among names like `DDMMYYYY_N.DAT`, of any date.
 ///
 /// Names that do not follow that pattern, such as temp files, are ignored.
-pub fn next_file_counter<'a>(file_names: impl Iterator<Item = &'a str>) -> u64 {
-    file_names
-        .filter_map(file_counter_of)
-        .max()
-        .map_or(FIRST_FILE_COUNTER, |highest| highest + 1)
+///
+/// `None` if the highest `N` is `u64::MAX`, so there is no number left to give.
+pub fn next_file_counter<'a>(file_names: impl Iterator<Item = &'a str>) -> Option<u64> {
+    match file_names.filter_map(file_counter_of).max() {
+        None => Some(FIRST_FILE_COUNTER),
+        Some(highest) => highest.checked_add(1),
+    }
 }
 
 /// The `N` of a name like `24102026_7.DAT`, or `None` for any other name.
@@ -58,21 +61,28 @@ mod tests {
 
     #[test]
     fn next_file_counter_is_one_when_there_are_no_files() {
-        assert_eq!(next_file_counter(std::iter::empty()), 1);
+        assert_eq!(next_file_counter(std::iter::empty()), Some(1));
+    }
+
+    #[test]
+    fn next_file_counter_fails_when_the_highest_counter_cannot_advance() {
+        let names = ["24102026_18446744073709551615.DAT"];
+
+        assert_eq!(next_file_counter(names.into_iter()), None);
     }
 
     #[test]
     fn next_file_counter_continues_after_the_highest_number_of_any_date() {
         let names = ["24102026_1.DAT", "01012027_7.DAT", "30112026_3.DAT"];
 
-        assert_eq!(next_file_counter(names.into_iter()), 8);
+        assert_eq!(next_file_counter(names.into_iter()), Some(8));
     }
 
     #[test]
     fn next_file_counter_ignores_temp_files_and_other_names() {
         let names = [".tmp-24102026_9.DAT.tmp", "notes.txt", "24102026_2.DAT"];
 
-        assert_eq!(next_file_counter(names.into_iter()), 3);
+        assert_eq!(next_file_counter(names.into_iter()), Some(3));
     }
 
     #[test]
@@ -86,6 +96,6 @@ mod tests {
             "24102026_9.DAT.bak",
         ];
 
-        assert_eq!(next_file_counter(names.into_iter()), 1);
+        assert_eq!(next_file_counter(names.into_iter()), Some(1));
     }
 }

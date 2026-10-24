@@ -5,7 +5,7 @@ use prex_processor::{
     application::ClientService,
     config::Settings,
     http,
-    infrastructure::{next_file_counter_in_dir, FsCutOffFileWriter},
+    infrastructure::{next_file_counter_in_dir, remove_stale_temp_files, FsCutOffFileWriter},
 };
 use tracing_subscriber::EnvFilter;
 
@@ -31,6 +31,7 @@ async fn main() -> std::io::Result<()> {
     tracing::info!(host = %settings.host, port = settings.port, "starting server");
 
     std::fs::create_dir_all(&settings.cut_off_dir)?;
+    remove_stale_temp_files(&settings.cut_off_dir)?;
     let next_file_counter = next_file_counter_in_dir(&settings.cut_off_dir)?;
     tracing::info!(next_file_counter, dir = ?settings.cut_off_dir, "cut-off folder ready");
 
