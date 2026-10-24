@@ -90,6 +90,10 @@ impl<W: CutOffFileWriter> ClientService<W> {
     ///
     /// Runs under the lock, with no timeout around the write. If the write fails, balances
     /// and file counter stay as they were, so a retry uses the same file name.
+    ///
+    /// Not cancel-safe by itself: if this future is dropped after the file is published, the
+    /// balances are not reset and the next cut-off counts them again. Run it in its own task,
+    /// as the HTTP handler does.
     pub async fn store_balances(&self, today: NaiveDate) -> Result<String, AppError> {
         let mut store = self.store.lock().await;
         let following_file_counter = store.following_file_counter().ok_or_else(|| {
