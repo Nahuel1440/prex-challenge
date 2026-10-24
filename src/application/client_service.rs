@@ -4,7 +4,7 @@ use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use tokio::sync::Mutex;
 
-use super::{AppError, ClientStore};
+use super::{AppError, ClientStore, ClientView};
 use crate::domain::{Amount, ClientId, NewClient};
 
 /// The unvalidated data to register a client, as the issuer sent it.
@@ -67,6 +67,16 @@ impl ClientService {
         client.debit(amount)?;
 
         Ok(client.balance)
+    }
+
+    /// A copy of the client taken under the lock, so a concurrent movement never tears it.
+    pub async fn find(&self, client_id: ClientId) -> Result<ClientView, AppError> {
+        self.store
+            .lock()
+            .await
+            .find(client_id)
+            .map(ClientView::from)
+            .ok_or(AppError::ClientNotFound(client_id))
     }
 }
 
@@ -267,5 +277,50 @@ mod tests {
 
         let final_balance = service.debit(client_id, amount("0.01")).await.unwrap();
         assert_eq!(final_balance, balance("0.99"));
+    }
+
+    #[tokio::test]
+    async fn find_returns_a_copy_of_the_normalized_client() {
+        let service = ClientService::new();
+        let client_id = service
+            .register(registration_with_document("12.345.678"), today())
+            .await
+            .unwrap();
+
+        let view = service.find(client_id).await.unwrap();
+
+        assert_eq!(
+            view,
+            ClientView {
+                client_id,
+                client_name: "Ana Pérez".to_owned(),
+                birth_date: NaiveDate::from_ymd_opt(1990, 5, 17).unwrap(),
+                document_number: "12345678".to_owned(),
+                country: "AR".to_owned(),
+                balance: Decimal::ZERO,
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn find_reflects_the_balance_after_credit_and_debit() {
+        let service = ClientService::new();
+        let client_id = registered_client(&service).await;
+        service.credit(client_id, amount("100.50")).await.unwrap();
+        service.debit(client_id, amount("30")).await.unwrap();
+
+        let view = service.find(client_id).await.unwrap();
+
+        assert_eq!(view.balance, balance("70.50"));
+    }
+
+    #[tokio::test]
+    async fn find_unknown_client_fails_with_client_not_found() {
+        let service = ClientService::new();
+        let unknown = ClientId::new(42);
+
+        let error = service.find(unknown).await;
+
+        assert_eq!(error.unwrap_err(), AppError::ClientNotFound(unknown));
     }
 }
