@@ -1,7 +1,7 @@
 //! Entry point: reads settings, starts logging and serves HTTP until a stop signal.
 
-use actix_web::{middleware::Logger, App, HttpServer};
-use prex_processor::{config::Settings, http};
+use actix_web::{middleware::Logger, web, App, HttpServer};
+use prex_processor::{application::ClientService, config::Settings, http};
 use tracing_subscriber::EnvFilter;
 
 /// Time in-flight requests get to finish after a stop signal.
@@ -25,8 +25,11 @@ async fn main() -> std::io::Result<()> {
 
     tracing::info!(host = %settings.host, port = settings.port, "starting server");
 
-    HttpServer::new(|| {
+    let client_service = web::Data::new(ClientService::new());
+
+    HttpServer::new(move || {
         App::new()
+            .app_data(client_service.clone())
             .wrap(Logger::default())
             .configure(http::configure)
     })
