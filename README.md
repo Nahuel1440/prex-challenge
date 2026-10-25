@@ -27,7 +27,7 @@ docker build -t prex-challenge .
 docker run --rm --name prex-challenge-review -p 8080:8080 -v prex-review-cut-off:/data/cut_off_files prex-challenge
 ```
 
-Keep the container running while using Terminal 2 for health, API and file checks. The image runs as a non-root user (uid 10001), listens on `0.0.0.0:8080` and writes cut-off files to `/data/cut_off_files`. The named volume keeps those files after the container stops. With a bind mount, the host folder must be writable by uid 10001.
+The image runs as a non-root user and writes cut-off files to the named volume, so they survive the container.
 
 ## Configuration
 
@@ -111,42 +111,17 @@ Things that surprise people:
 cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test --locked
 ```
 
-Use a disposable review instance and its own output folder or volume, as above. The Postman collection and smoke test create clients, change balances, run cut-offs and write files. Never target real data.
-
-The optional Newman CLI needs Node.js and npm (`npx`). Alternatively, use the Postman app as described below. The `npx` command may download Newman 6 if it is not already cached.
-
-End-to-end, from Terminal 2 against the running local binary or container:
+End-to-end, from Terminal 2 against a disposable instance (these create clients and write files):
 
 | Tool | Command |
 | --- | --- |
-| Postman collection with newman | `npx --yes newman@6 run postman/prex-challenge.postman_collection.json --env-var base_url=http://127.0.0.1:8080` |
-| Shell smoke test | `BASE_URL=http://127.0.0.1:8080 scripts/smoke.sh` |
-| Cut-off file check (at least one file and one line in total, no temp file left, final newline, every line `ID BALANCE` in normal form, ids strictly increasing) | `scripts/check_cut_off_files.sh <cut_off_dir>` |
+| Postman collection with newman (needs Node.js) | `npx --yes newman@6 run postman/prex-challenge.postman_collection.json --env-var base_url=http://127.0.0.1:8080` |
+| Shell smoke test, plus the file check | `CUT_OFF_DIR=target/review-cut-off scripts/smoke.sh` |
+| Cut-off file check alone (line format, ids in order, no temp file left) | `scripts/check_cut_off_files.sh <cut_off_dir>` |
 
-`smoke.sh` runs the file check too when `CUT_OFF_DIR` points at the server's folder. For the native quick start:
+In the Postman app, import the same file and run the folders in order with the Collection Runner. For the container, copy the files out with `docker cp prex-challenge-review:/data/cut_off_files target/` and check `target/cut_off_files`.
 
-```bash
-CUT_OFF_DIR=target/review-cut-off scripts/smoke.sh
-```
-
-For the container quick start, run the collection or smoke test first so there are balances to inspect. Then copy the files from the still-running named container into generated output and check them:
-
-```bash
-mkdir -p target/docker-review
-docker cp prex-challenge-review:/data/cut_off_files target/docker-review/
-scripts/check_cut_off_files.sh target/docker-review/cut_off_files
-```
-
-In the Postman app, import the same file and use the Collection Runner. Run the folders in order: later requests use `client_id` and `file_counter` saved by earlier ones. Change the `base_url` variable to target another host.
-
-CI (GitHub Actions) runs on every pull request:
-
-| Job | What it does |
-| --- | --- |
-| `check` | `fmt`, `clippy -D warnings`, `cargo test --locked` |
-| `msrv` | `cargo test --locked` on Rust 1.89 |
-| `e2e` | Release binary, then newman, `smoke.sh` and the file check |
-| `docker` | `docker build` of the `Dockerfile` (no push) |
+CI runs the same checks on every pull request, plus the tests on Rust 1.89 and a `docker build`.
 
 ## Design
 
@@ -172,10 +147,7 @@ One crate, four layers as modules:
 
 - Amounts are `rust_decimal::Decimal`, parsed from the JSON text straight into a `Decimal`. A float would silently change `12345678901234567.89`.
 - Greater than 0, with at most 2 significant decimals.
-- Every accepted movement is exact. Checked `Decimal` arithmetic can still round near its precision limit, so the result is also verified using exact integer arithmetic before the balance changes. An out-of-range or inexact result gives 422 `BALANCE_OVERFLOW` and leaves the balance unchanged.
-- Safe whole-number operations through `Decimal::MAX` remain supported.
-- A `0.01` debit from `Decimal::MAX` is rejected, because the exact result cannot fit, rather than succeeding without subtracting the cent.
-- Successful responses keep the checked result's existing scale, including trailing zeros when the result fits.
+- Every accepted movement is exact. A result that is out of range or would be rounded (possible near `Decimal::MAX`) gives 422 `BALANCE_OVERFLOW` and leaves the balance unchanged.
 - A balance is the net position since the last cut-off, not available funds, so it may be negative.
 
 ### Cut-off
@@ -222,8 +194,8 @@ Accepted on purpose, to keep the scope to what the challenge asks.
 - **Cut-offs block everything.** See Cut-off: no timeout, and a hung disk stops every operation.
 - **File line format is an assumption.** The PDF does not define padding, so ids are plain (`1`, not `01`) and balances are normalized (`70.5`, not `70.50`).
 - **Counter continues from the folder.** A small step away from "since the service started". See File name and counter.
-- **UTC date.** An issuer in UTC-3 that calls after 21:00 local time gets the next day in the file name. The date is read when the request arrives, before it waits for the lock, so a cut-off queued behind a slow one across UTC midnight can carry the previous day.
-- **A taken name blocks the cut-off.** If the next file name already exists on disk (for example a file copied in by hand), every retry fails with `CUT_OFF_FAILED` until an operator moves the file. A retry uses the same name by design, so nothing is overwritten. The log says this case apart from other write errors.
+- **UTC date.** An issuer in UTC-3 that calls after 21:00 local time gets the next day in the file name.
+- **A taken name blocks the cut-off.** If the next file name already exists (for example a file copied in by hand), every cut-off fails with `CUT_OFF_FAILED` until an operator moves it. Nothing is overwritten.
 - **Uniqueness uses the document alone**, as the PDF says.
 - **No authentication**, and no handling of unknown routes or methods beyond Actix defaults.
 
