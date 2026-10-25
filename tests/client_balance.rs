@@ -8,9 +8,11 @@ use actix_web::{
     web::Data,
     App, Error,
 };
-use prex_processor::{application::ClientService, http};
+use prex_processor::{application::ClientService, http, infrastructure::UnwiredCutOffFileWriter};
 use serde_json::Value;
 
+/// Cut-off is not under test here; any counter works.
+const FIRST_FILE_COUNTER: u64 = 1;
 /// Id of the first registered client, Ana.
 const ANA_ID: u64 = 1;
 
@@ -30,8 +32,11 @@ impl Answer {
 async fn running_app() -> impl Service<Request, Response = ServiceResponse, Error = Error> {
     test::init_service(
         App::new()
-            .app_data(Data::new(ClientService::new()))
-            .configure(http::configure),
+            .app_data(Data::new(ClientService::new(
+                UnwiredCutOffFileWriter,
+                FIRST_FILE_COUNTER,
+            )))
+            .configure(http::configure::<UnwiredCutOffFileWriter>),
     )
     .await
 }

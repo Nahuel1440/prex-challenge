@@ -1,10 +1,10 @@
 //! `POST /new_client`.
 
-use actix_web::{post, web, HttpResponse};
+use actix_web::{web, HttpResponse};
 use chrono::{NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::application::{AppError, ClientRegistration, ClientService};
+use crate::application::{AppError, ClientRegistration, ClientService, CutOffFileWriter};
 use crate::domain::ClientId;
 
 /// Body of `POST /new_client`.
@@ -34,9 +34,8 @@ impl From<NewClientRequest> for ClientRegistration {
 }
 
 /// Registers a client and answers 201 with its id.
-#[post("/new_client")]
-pub async fn new_client(
-    service: web::Data<ClientService>,
+pub async fn new_client<W: CutOffFileWriter + 'static>(
+    service: web::Data<ClientService<W>>,
     request: web::Json<NewClientRequest>,
 ) -> Result<HttpResponse, AppError> {
     let today = Utc::now().date_naive();

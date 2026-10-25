@@ -1,10 +1,11 @@
 use actix_web::{http::StatusCode, test, App};
-use prex_processor::http;
+use prex_processor::{http, infrastructure::UnwiredCutOffFileWriter};
 use serde_json::{json, Value};
 
 #[actix_web::test]
 async fn health_returns_200_with_status_ok() {
-    let app = test::init_service(App::new().configure(http::configure)).await;
+    let app =
+        test::init_service(App::new().configure(http::configure::<UnwiredCutOffFileWriter>)).await;
 
     let response =
         test::call_service(&app, test::TestRequest::get().uri("/health").to_request()).await;

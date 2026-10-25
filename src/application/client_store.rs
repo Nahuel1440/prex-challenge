@@ -8,7 +8,7 @@ use crate::domain::{Client, ClientId, DocumentNumber, NewClient};
 /// First id given to a client.
 const FIRST_CLIENT_ID: u64 = 1;
 
-/// Every registered client, the document index and the id counter.
+/// Every registered client, the document index and the id and file counters.
 ///
 /// Not thread safe by itself: `ClientService` keeps it behind one lock so that the
 /// document check and the insert happen together.
@@ -17,19 +17,21 @@ pub struct ClientStore {
     clients: HashMap<ClientId, Client>,
     document_index: HashMap<DocumentNumber, ClientId>,
     next_client_id: u64,
+    #[expect(dead_code, reason = "used by store_balances in the next PR")]
+    next_file_counter: u64,
 }
 
-impl Default for ClientStore {
-    fn default() -> Self {
+impl ClientStore {
+    /// An empty store whose first cut-off file gets the number `next_file_counter`.
+    pub fn new(next_file_counter: u64) -> Self {
         Self {
             clients: HashMap::new(),
             document_index: HashMap::new(),
             next_client_id: FIRST_CLIENT_ID,
+            next_file_counter,
         }
     }
-}
 
-impl ClientStore {
     /// Stores a new client with the next id, unless its document is already registered.
     pub fn register(&mut self, new_client: NewClient) -> Result<ClientId, AppError> {
         if self

@@ -4,7 +4,7 @@ use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use tokio::sync::Mutex;
 
-use super::{AppError, ClientStore, ClientView};
+use super::{AppError, ClientStore, ClientView, CutOffFileWriter};
 use crate::domain::{Amount, ClientId, NewClient};
 
 /// The unvalidated data to register a client, as the issuer sent it.
@@ -21,15 +21,20 @@ pub struct ClientRegistration {
 }
 
 /// Runs the client use cases over one shared store.
-#[derive(Debug, Default)]
-pub struct ClientService {
+#[derive(Debug)]
+pub struct ClientService<W> {
     store: Mutex<ClientStore>,
+    #[expect(dead_code, reason = "used by store_balances in the next PR")]
+    writer: W,
 }
 
-impl ClientService {
-    /// A service with no clients.
-    pub fn new() -> Self {
-        Self::default()
+impl<W: CutOffFileWriter> ClientService<W> {
+    /// A service with no clients; the first cut-off file gets the number `next_file_counter`.
+    pub fn new(writer: W, next_file_counter: u64) -> Self {
+        Self {
+            store: Mutex::new(ClientStore::new(next_file_counter)),
+            writer,
+        }
     }
 
     /// Validates the registration (against the UTC date `today`) and stores the client.
@@ -87,6 +92,7 @@ mod tests {
     use super::*;
     use crate::application::AppError;
     use crate::domain::ClientId;
+    use crate::infrastructure::UnwiredCutOffFileWriter;
     use chrono::NaiveDate;
     use rust_decimal::Decimal;
     use std::str::FromStr;
@@ -94,6 +100,13 @@ mod tests {
 
     const CONCURRENT_REGISTRATIONS: usize = 50;
     const CONCURRENT_MOVEMENTS: usize = 100;
+    const FIRST_FILE_COUNTER: u64 = 1;
+
+    type TestService = ClientService<UnwiredCutOffFileWriter>;
+
+    fn service() -> TestService {
+        ClientService::new(UnwiredCutOffFileWriter, FIRST_FILE_COUNTER)
+    }
 
     fn today() -> NaiveDate {
         NaiveDate::from_ymd_opt(2026, 10, 24).unwrap()
@@ -110,7 +123,7 @@ mod tests {
 
     #[tokio::test]
     async fn register_assigns_consecutive_ids_1_2_3() {
-        let service = ClientService::new();
+        let service = service();
 
         let first = service
             .register(registration_with_document("1"), today())
@@ -130,7 +143,7 @@ mod tests {
 
     #[tokio::test]
     async fn register_same_document_twice_fails_with_document_already_registered() {
-        let service = ClientService::new();
+        let service = service();
         service
             .register(registration_with_document("123"), today())
             .await
@@ -145,7 +158,7 @@ mod tests {
 
     #[tokio::test]
     async fn register_rejects_same_document_in_a_different_format() {
-        let service = ClientService::new();
+        let service = service();
         let first_id = service
             .register(registration_with_document("12.345.678"), today())
             .await
@@ -164,7 +177,7 @@ mod tests {
 
     #[tokio::test]
     async fn register_with_invalid_fields_returns_invalid_request_and_consumes_no_id() {
-        let service = ClientService::new();
+        let service = service();
         let invalid = ClientRegistration {
             client_name: "  ".to_owned(),
             ..registration_with_document("1")
@@ -181,7 +194,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn concurrent_registrations_with_same_document_yield_exactly_one_success() {
-        let service = Arc::new(ClientService::new());
+        let service = Arc::new(service());
 
         let tasks: Vec<_> = (0..CONCURRENT_REGISTRATIONS)
             .map(|_| {
@@ -209,7 +222,7 @@ mod tests {
         Decimal::from_str(text).unwrap()
     }
 
-    async fn registered_client(service: &ClientService) -> ClientId {
+    async fn registered_client(service: &TestService) -> ClientId {
         service
             .register(registration_with_document("1"), today())
             .await
@@ -218,7 +231,7 @@ mod tests {
 
     #[tokio::test]
     async fn credit_then_debit_return_the_new_balance() {
-        let service = ClientService::new();
+        let service = service();
         let client_id = registered_client(&service).await;
 
         let after_credit = service.credit(client_id, amount("100.50")).await;
@@ -230,7 +243,7 @@ mod tests {
 
     #[tokio::test]
     async fn credit_unknown_client_fails_with_client_not_found() {
-        let service = ClientService::new();
+        let service = service();
         let unknown = ClientId::new(42);
 
         let error = service.credit(unknown, amount("1")).await;
@@ -240,7 +253,7 @@ mod tests {
 
     #[tokio::test]
     async fn debit_unknown_client_fails_with_client_not_found() {
-        let service = ClientService::new();
+        let service = service();
         let unknown = ClientId::new(42);
 
         let error = service.debit(unknown, amount("1")).await;
@@ -250,7 +263,7 @@ mod tests {
 
     #[tokio::test]
     async fn credit_overflow_returns_balance_overflow_and_balance_unchanged() {
-        let service = ClientService::new();
+        let service = service();
         let client_id = registered_client(&service).await;
         let near_max = Amount::try_from(Decimal::MAX).unwrap();
         service.credit(client_id, near_max).await.unwrap();
@@ -264,7 +277,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn concurrent_credits_on_one_client_sum_exactly() {
-        let service = Arc::new(ClientService::new());
+        let service = Arc::new(service());
         let client_id = registered_client(&service).await;
 
         let tasks: Vec<_> = (0..CONCURRENT_MOVEMENTS)
@@ -283,7 +296,7 @@ mod tests {
 
     #[tokio::test]
     async fn find_returns_a_copy_of_the_normalized_client() {
-        let service = ClientService::new();
+        let service = service();
         let client_id = service
             .register(registration_with_document("12.345.678"), today())
             .await
@@ -306,7 +319,7 @@ mod tests {
 
     #[tokio::test]
     async fn find_reflects_the_balance_after_credit_and_debit() {
-        let service = ClientService::new();
+        let service = service();
         let client_id = registered_client(&service).await;
         service.credit(client_id, amount("100.50")).await.unwrap();
         service.debit(client_id, amount("30")).await.unwrap();
@@ -318,7 +331,7 @@ mod tests {
 
     #[tokio::test]
     async fn find_unknown_client_fails_with_client_not_found() {
-        let service = ClientService::new();
+        let service = service();
         let unknown = ClientId::new(42);
 
         let error = service.find(unknown).await;
