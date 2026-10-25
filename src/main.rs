@@ -2,14 +2,15 @@
 
 use actix_web::{middleware::Logger, web, App, HttpServer};
 use prex_processor::{
-    application::ClientService, config::Settings, http, infrastructure::UnwiredCutOffFileWriter,
+    application::ClientService,
+    config::Settings,
+    http,
+    infrastructure::{next_file_counter_in_dir, remove_stale_temp_files, FsCutOffFileWriter},
 };
 use tracing_subscriber::EnvFilter;
 
 /// Time in-flight requests get to finish after a stop signal.
 const SHUTDOWN_TIMEOUT_SECONDS: u64 = 10;
-/// Number of the first cut-off file until the startup scan exists (slice 05b).
-const FIRST_FILE_COUNTER: u64 = 1;
 /// Log level used when `RUST_LOG` is not set.
 const DEFAULT_LOG_FILTER: &str = "info";
 
@@ -29,16 +30,21 @@ async fn main() -> std::io::Result<()> {
 
     tracing::info!(host = %settings.host, port = settings.port, "starting server");
 
+    std::fs::create_dir_all(&settings.cut_off_dir)?;
+    remove_stale_temp_files(&settings.cut_off_dir)?;
+    let next_file_counter = next_file_counter_in_dir(&settings.cut_off_dir)?;
+    tracing::info!(next_file_counter, dir = ?settings.cut_off_dir, "cut-off folder ready");
+
     let client_service = web::Data::new(ClientService::new(
-        UnwiredCutOffFileWriter,
-        FIRST_FILE_COUNTER,
+        FsCutOffFileWriter::new(settings.cut_off_dir.clone()),
+        next_file_counter,
     ));
 
     HttpServer::new(move || {
         App::new()
             .app_data(client_service.clone())
             .wrap(Logger::default())
-            .configure(http::configure::<UnwiredCutOffFileWriter>)
+            .configure(http::configure::<FsCutOffFileWriter>)
     })
     .bind((settings.host.as_str(), settings.port))?
     .shutdown_timeout(SHUTDOWN_TIMEOUT_SECONDS)

@@ -1,5 +1,9 @@
 //! Finds the number the next cut-off file gets, from the files already in the folder.
 
+use std::fs;
+use std::io;
+use std::path::Path;
+
 /// Number given to the first cut-off file when the folder holds none.
 const FIRST_FILE_COUNTER: u64 = 1;
 
@@ -9,6 +13,20 @@ const DATE_DIGITS: usize = 8;
 const FILE_COUNTER_SEPARATOR: char = '_';
 /// Ending of every cut-off file name.
 const FILE_EXTENSION: &str = ".DAT";
+
+/// The number the next cut-off file gets, from the files already in `dir`.
+///
+/// Fails if `dir` cannot be listed, or if its highest counter leaves no number to give.
+/// Names that are not valid text are ignored.
+pub fn next_file_counter_in_dir(dir: &Path) -> io::Result<u64> {
+    let file_names = fs::read_dir(dir)?
+        .map(|entry| entry.map(|entry| entry.file_name().into_string()))
+        .collect::<io::Result<Vec<_>>>()?;
+
+    next_file_counter(file_names.iter().filter_map(|name| name.as_deref().ok())).ok_or_else(|| {
+        io::Error::other("the highest cut-off file counter in the folder cannot be increased")
+    })
+}
 
 /// The number after the highest `N` among names like `DDMMYYYY_N.DAT`, of any date.
 ///
