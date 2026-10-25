@@ -1,0 +1,125 @@
+{
+  "info": {
+    "name": "Prex challenge",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://127.0.0.1:8080" },
+    { "key": "client_id", "value": "" },
+    { "key": "document_number", "value": "" },
+    { "key": "same_document_other_format", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "health",
+      "request": { "method": "GET", "url": "{{base_url}}/health" },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', () => pm.response.to.have.status(200));",
+              "pm.test('body is { status: ok }', () => pm.expect(pm.response.json()).to.eql({ status: 'ok' }));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "new_client 201",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{base_url}}/new_client",
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"client_name\": \"Ana Pérez\", \"birth_date\": \"1990-05-17\", \"document_number\": \"{{document_number}}\", \"country\": \"ar\" }"
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const stamp = Date.now();",
+              "pm.collectionVariables.set('document_number', 'E2E' + stamp);",
+              "pm.collectionVariables.set('same_document_other_format', 'e2e.' + stamp);"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 201', () => pm.response.to.have.status(201));",
+              "pm.test('body has a numeric client_id', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body.client_id).to.be.a('number').and.to.be.at.least(1);",
+              "  pm.collectionVariables.set('client_id', body.client_id);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "new_client same document in another format 409",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{base_url}}/new_client",
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"client_name\": \"Otra Persona\", \"birth_date\": \"1985-01-02\", \"document_number\": \"{{same_document_other_format}}\", \"country\": \"AR\" }"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 409', () => pm.response.to.have.status(409));",
+              "pm.test('code is DOCUMENT_ALREADY_REGISTERED', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body.code).to.eql('DOCUMENT_ALREADY_REGISTERED');",
+              "  pm.expect(body.message).to.be.a('string');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "new_client invalid body 400",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{base_url}}/new_client",
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"client_name\": \"   \", \"birth_date\": \"1990-05-17\", \"document_number\": \"123\", \"country\": \"AR\" }"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 400', () => pm.response.to.have.status(400));",
+              "pm.test('code is INVALID_REQUEST', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body.code).to.eql('INVALID_REQUEST');",
+              "  pm.expect(body.message).to.be.a('string');",
+              "});"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

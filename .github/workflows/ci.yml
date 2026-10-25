@@ -25,3 +25,34 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.89
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --locked
+
+  e2e:
+    env:
+      BASE_URL: http://127.0.0.1:8080
+      HEALTH_WAIT_SECONDS: 30
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked
+      - name: Start the server
+        run: |
+          mkdir -p "$RUNNER_TEMP/cutoff"
+          CUT_OFF_DIR="$RUNNER_TEMP/cutoff" target/release/prex_processor &
+          echo "SERVER_PID=$!" >> "$GITHUB_ENV"
+      - name: Wait for /health
+        run: |
+          for attempt in $(seq 1 "$HEALTH_WAIT_SECONDS"); do
+            curl --silent --fail "$BASE_URL/health" && exit 0
+            sleep 1
+          done
+          echo "server did not become healthy in $HEALTH_WAIT_SECONDS s" >&2
+          exit 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npx --yes newman@6 run postman/prex-challenge.postman_collection.json --env-var "base_url=$BASE_URL"
+      - name: Stop the server
+        if: always()
+        run: kill "$SERVER_PID" || true
