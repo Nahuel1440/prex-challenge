@@ -6,7 +6,7 @@ rust-version = "1.89"
 
 [dependencies]
 actix-web = "4"
-chrono = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
 rust_decimal = { version = "1", features = ["serde-with-arbitrary-precision"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["arbitrary_precision"] }
@@ -15,4 +15,5 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
+actix-http = "3"
 tempfile = "3"
