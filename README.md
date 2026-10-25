@@ -237,3 +237,7 @@ Accepted on purpose, to keep the scope to what the challenge asks.
 | Swap-and-merge cut-off | Swap the balances out under the lock and write the file outside it, so movements do not wait for the disk. On failure, merge back by adding. Needed if the file goes to slow or remote storage. |
 | Precision per currency | The 2 decimals are a simple convention. |
 | Authentication, metrics, more than one instance | Out of scope here. |
+
+## AI usage
+
+How I used AI tools to build this: [AI_USAGE.md](AI_USAGE.md).
