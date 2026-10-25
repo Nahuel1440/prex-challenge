@@ -3,8 +3,11 @@
 mod client_service;
 mod client_store;
 mod client_view;
+mod cut_off_file_name;
 mod cut_off_file_writer;
 mod error;
+#[cfg(test)]
+mod fake_cut_off_file_writer;
 
 pub use client_service::{ClientRegistration, ClientService};
 pub use client_store::ClientStore;

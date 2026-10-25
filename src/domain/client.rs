@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use super::{Amount, BirthDate, ClientFieldError, ClientName, Country, DocumentNumber};
 
 /// Identifier of a client, unique within one run of the service.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ClientId(u64);
 
 impl ClientId {
@@ -106,6 +106,11 @@ impl Client {
             .ok_or(BalanceOverflow)?;
 
         Ok(())
+    }
+
+    /// Sets the balance back to zero, after the cut-off stored it.
+    pub fn reset_balance(&mut self) {
+        self.balance = Decimal::ZERO;
     }
 }
 
