@@ -55,13 +55,13 @@ impl NewClient {
     }
 }
 
-/// A movement that would leave the balance outside the range of `Decimal`.
+/// A movement whose resulting balance cannot be represented exactly by `Decimal`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BalanceOverflow;
 
 impl fmt::Display for BalanceOverflow {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("the movement would overflow the client balance")
+        formatter.write_str("the resulting balance cannot be represented exactly")
     }
 }
 
@@ -88,22 +88,16 @@ impl Client {
         }
     }
 
-    /// Adds `amount` to the balance; the balance is unchanged if it would overflow.
+    /// Adds `amount` exactly; leaves the balance unchanged on overflow or precision loss.
     pub fn credit(&mut self, amount: Amount) -> Result<(), BalanceOverflow> {
-        self.balance = self
-            .balance
-            .checked_add(amount.value())
-            .ok_or(BalanceOverflow)?;
+        self.balance = exact_balance_sum(self.balance, amount.value())?;
 
         Ok(())
     }
 
-    /// Subtracts `amount` from the balance, which may go negative; unchanged if it would overflow.
+    /// Subtracts `amount` exactly, allowing negative balances; unchanged if not representable.
     pub fn debit(&mut self, amount: Amount) -> Result<(), BalanceOverflow> {
-        self.balance = self
-            .balance
-            .checked_sub(amount.value())
-            .ok_or(BalanceOverflow)?;
+        self.balance = exact_balance_sum(self.balance, -amount.value())?;
 
         Ok(())
     }
@@ -112,6 +106,35 @@ impl Client {
     pub fn reset_balance(&mut self) {
         self.balance = Decimal::ZERO;
     }
+}
+
+/// Returns `balance + change` as checked `Decimal` arithmetic gives it, keeping its scale.
+///
+/// Fails with `BalanceOverflow` when the sum is out of range or differs from the exact sum,
+/// because `Decimal` rounds silently once its 96-bit mantissa is full.
+fn exact_balance_sum(balance: Decimal, change: Decimal) -> Result<Decimal, BalanceOverflow> {
+    let checked_sum = balance.checked_add(change).ok_or(BalanceOverflow)?;
+    let common_scale = balance.normalize().scale().max(change.normalize().scale());
+
+    let balance_units = mantissa_at_scale(balance, common_scale).ok_or(BalanceOverflow)?;
+    let change_units = mantissa_at_scale(change, common_scale).ok_or(BalanceOverflow)?;
+    let exact_units = balance_units
+        .checked_add(change_units)
+        .ok_or(BalanceOverflow)?;
+
+    if mantissa_at_scale(checked_sum, common_scale) != Some(exact_units) {
+        return Err(BalanceOverflow);
+    }
+
+    Ok(checked_sum)
+}
+
+/// The value as an integer count of `10^-scale` units, or `None` if it needs more decimals or overflows.
+fn mantissa_at_scale(value: Decimal, scale: u32) -> Option<i128> {
+    let normalized = value.normalize();
+    let factor = 10_i128.checked_pow(scale.checked_sub(normalized.scale())?)?;
+
+    normalized.mantissa().checked_mul(factor)
 }
 
 #[cfg(test)]
@@ -200,5 +223,112 @@ mod tests {
 
         assert_eq!(error, BalanceOverflow);
         assert_eq!(client.balance, Decimal::MIN);
+    }
+
+    #[test]
+    fn credit_precision_loss_fails_with_balance_overflow_and_keeps_balance() {
+        for initial in [
+            Decimal::MAX,
+            Decimal::MIN,
+            Decimal::from_str("792281625142643375935439503.35").unwrap(),
+        ] {
+            let mut client = client_with_balance(initial);
+
+            let result = client.credit(amount("0.01"));
+
+            assert_eq!(result, Err(BalanceOverflow), "initial balance: {initial}");
+            assert_eq!(client.balance, initial);
+        }
+    }
+
+    #[test]
+    fn debit_precision_loss_fails_with_balance_overflow_and_keeps_balance() {
+        for initial in [
+            Decimal::MAX,
+            Decimal::MIN,
+            Decimal::from_str("-792281625142643375935439503.35").unwrap(),
+        ] {
+            let mut client = client_with_balance(initial);
+
+            let result = client.debit(amount("0.01"));
+
+            assert_eq!(result, Err(BalanceOverflow), "initial balance: {initial}");
+            assert_eq!(client.balance, initial);
+        }
+    }
+
+    #[test]
+    fn credit_accepts_exact_high_magnitude_sums_carries_and_cancellation() {
+        for (initial, movement, expected) in [
+            (
+                "792281625142643375935439503.34",
+                "0.01",
+                "792281625142643375935439503.35",
+            ),
+            (
+                "792281625142643375935439503.35",
+                "0.65",
+                "792281625142643375935439504",
+            ),
+            (
+                "79228162514264337593543950334",
+                "1",
+                "79228162514264337593543950335",
+            ),
+            (
+                "-79228162514264337593543950335",
+                "79228162514264337593543950335",
+                "0",
+            ),
+        ] {
+            let mut client = client_with_balance(Decimal::from_str(initial).unwrap());
+
+            client.credit(amount(movement)).unwrap();
+
+            assert_eq!(client.balance, Decimal::from_str(expected).unwrap());
+        }
+    }
+
+    #[test]
+    fn debit_accepts_exact_high_magnitude_differences_carries_and_cancellation() {
+        for (initial, movement, expected) in [
+            (
+                "-792281625142643375935439503.34",
+                "0.01",
+                "-792281625142643375935439503.35",
+            ),
+            (
+                "-792281625142643375935439503.35",
+                "0.65",
+                "-792281625142643375935439504",
+            ),
+            (
+                "-79228162514264337593543950334",
+                "1",
+                "-79228162514264337593543950335",
+            ),
+            (
+                "79228162514264337593543950335",
+                "79228162514264337593543950335",
+                "0",
+            ),
+        ] {
+            let mut client = client_with_balance(Decimal::from_str(initial).unwrap());
+
+            client.debit(amount(movement)).unwrap();
+
+            assert_eq!(client.balance, Decimal::from_str(expected).unwrap());
+        }
+    }
+
+    #[test]
+    fn exact_movements_preserve_trailing_zero_scale() {
+        let mut client = client_with_balance(Decimal::ZERO);
+
+        client.credit(amount("72.000")).unwrap();
+        assert_eq!(client.balance.to_string(), "72.000");
+
+        client.debit(amount("1.0")).unwrap();
+        assert_eq!(client.balance.to_string(), "71.000");
     }
 }

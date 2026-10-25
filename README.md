@@ -6,21 +6,28 @@ Balances live in memory only. Read [Limitations](#limitations) before you rely o
 
 ## Quick start
 
-Needs Rust 1.89 or newer.
+Needs Rust 1.89 or newer. Run commands from the repository root.
+
+In Terminal 1, start the server and keep it running. This uses a dedicated review output folder:
 
 ```bash
-cargo run --release
+CUT_OFF_DIR=target/review-cut-off cargo run --release --locked
+```
+
+Terminal 2, from the same repository root, check health and run the API examples or checks below:
+
+```bash
 curl http://127.0.0.1:8080/health          # {"status":"ok"}
 ```
 
-With Docker:
+Alternatively, use the Docker CLI and a running local Docker engine. Run this instead of the native server in Terminal 1, since both use port 8080:
 
 ```bash
 docker build -t prex-challenge .
-docker run --rm -p 8080:8080 -v prex-cut-off:/data/cut_off_files prex-challenge
+docker run --rm --name prex-challenge-review -p 8080:8080 -v prex-review-cut-off:/data/cut_off_files prex-challenge
 ```
 
-The image runs as a non-root user (uid 10001), listens on `0.0.0.0:8080` and writes cut-off files to the volume `/data/cut_off_files`. With a bind mount, the host folder must be writable by uid 10001.
+Keep the container running while using Terminal 2 for health, API and file checks. The image runs as a non-root user (uid 10001), listens on `0.0.0.0:8080` and writes cut-off files to `/data/cut_off_files`. The named volume keeps those files after the container stops. With a bind mount, the host folder must be writable by uid 10001.
 
 ## Configuration
 
@@ -87,7 +94,7 @@ Every error has the same body: `{"code": "CLIENT_NOT_FOUND", "message": "client 
 | Amount is 0, negative, or has a non-zero digit past the 2nd decimal | 400 | `INVALID_AMOUNT` |
 | Client id does not exist | 404 | `CLIENT_NOT_FOUND` |
 | Document already registered | 409 | `DOCUMENT_ALREADY_REGISTERED` |
-| Movement would overflow the balance (beyond the `Decimal` range) | 422 | `BALANCE_OVERFLOW` |
+| Movement would exceed the `Decimal` range or lose precision | 422 | `BALANCE_OVERFLOW` |
 | Cut-off file could not be written | 500 | `CUT_OFF_FAILED` |
 
 Things that surprise people:
@@ -104,7 +111,11 @@ Things that surprise people:
 cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test --locked
 ```
 
-End-to-end, against a running server (local binary or container):
+Use a disposable review instance and its own output folder or volume, as above. The Postman collection and smoke test create clients, change balances, run cut-offs and write files. Never target real data.
+
+The optional Newman CLI needs Node.js and npm (`npx`). Alternatively, use the Postman app as described below. The `npx` command may download Newman 6 if it is not already cached.
+
+End-to-end, from Terminal 2 against the running local binary or container:
 
 | Tool | Command |
 | --- | --- |
@@ -112,7 +123,19 @@ End-to-end, against a running server (local binary or container):
 | Shell smoke test | `BASE_URL=http://127.0.0.1:8080 scripts/smoke.sh` |
 | Cut-off file check (at least one file and one line in total, no temp file left, final newline, every line `ID BALANCE` in normal form, ids strictly increasing) | `scripts/check_cut_off_files.sh <cut_off_dir>` |
 
-`smoke.sh` runs the file check too when `CUT_OFF_DIR` points at the server's folder. For a server in a container, copy the files out with `docker cp` and run the check on them.
+`smoke.sh` runs the file check too when `CUT_OFF_DIR` points at the server's folder. For the native quick start:
+
+```bash
+CUT_OFF_DIR=target/review-cut-off scripts/smoke.sh
+```
+
+For the container quick start, run the collection or smoke test first so there are balances to inspect. Then copy the files from the still-running named container into generated output and check them:
+
+```bash
+mkdir -p target/docker-review
+docker cp prex-challenge-review:/data/cut_off_files target/docker-review/
+scripts/check_cut_off_files.sh target/docker-review/cut_off_files
+```
 
 In the Postman app, import the same file and use the Collection Runner. Run the folders in order: later requests use `client_id` and `file_counter` saved by earlier ones. Change the `base_url` variable to target another host.
 
@@ -148,7 +171,11 @@ One crate, four layers as modules:
 ### Money
 
 - Amounts are `rust_decimal::Decimal`, parsed from the JSON text straight into a `Decimal`. A float would silently change `12345678901234567.89`.
-- Greater than 0, with at most 2 significant decimals. Credit and debit use checked arithmetic, so a result outside the `Decimal` range is `BALANCE_OVERFLOW`.
+- Greater than 0, with at most 2 significant decimals.
+- Every accepted movement is exact. Checked `Decimal` arithmetic can still round near its precision limit, so the result is also verified using exact integer arithmetic before the balance changes. An out-of-range or inexact result gives 422 `BALANCE_OVERFLOW` and leaves the balance unchanged.
+- Safe whole-number operations through `Decimal::MAX` remain supported.
+- A `0.01` debit from `Decimal::MAX` is rejected, because the exact result cannot fit, rather than succeeding without subtracting the cent.
+- Successful responses keep the checked result's existing scale, including trailing zeros when the result fits.
 - A balance is the net position since the last cut-off, not available funds, so it may be negative.
 
 ### Cut-off

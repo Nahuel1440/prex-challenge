@@ -15,7 +15,7 @@ pub enum AppError {
     InvalidAmount(AmountError),
     /// No client has this id.
     ClientNotFound(ClientId),
-    /// The movement would take the balance outside the range of `Decimal`.
+    /// The movement would exceed the range or exact precision of `Decimal`.
     BalanceOverflow,
     /// The cut-off file could not be stored; balances and counter were left unchanged.
     ///
