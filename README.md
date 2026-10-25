@@ -42,7 +42,7 @@ On a stop signal (SIGINT, SIGTERM) the server stops accepting requests and gives
 
 ## API
 
-Paths are the ones in the challenge PDF. Every answer from a route is JSON. Money is a JSON number, never a string.
+Paths are the ones in the challenge PDF, kept as written so they match the brief (see [Production next steps](#production-next-steps) for resource-style paths). Every answer from a route is JSON. Money is a JSON number, never a string.
 
 ```bash
 H='Content-Type: application/json'
@@ -236,6 +236,7 @@ Accepted on purpose, to keep the scope to what the challenge asks.
 | Key clients by `(country, document_number)` | Two countries can issue the same number. |
 | Swap-and-merge cut-off | Swap the balances out under the lock and write the file outside it, so movements do not wait for the disk. On failure, merge back by adding. Needed if the file goes to slow or remote storage. |
 | Precision per currency | The 2 decimals are a simple convention. |
+| Resource-style REST paths: `POST /clients`, `GET /clients/{id}`, `POST /clients/{id}/credits`, `POST /clients/{id}/debits`, `POST /cut-offs` | The PDF paths name actions (`new_client`, `store_balances`) and pass the id in the body or the query. Nouns, an id in the path and the HTTP method as the verb follow REST conventions. Keep the old paths for a while so clients can move. |
 | Authentication, metrics, more than one instance | Out of scope here. |
 
 ## AI usage
