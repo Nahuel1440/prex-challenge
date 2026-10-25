@@ -8,7 +8,7 @@ Balances live in memory only. Read [Limitations](#limitations) before you rely o
 
 Needs Rust 1.89 or newer. Run commands from the repository root.
 
-Terminal 1, keep the server running in the foreground. This uses a dedicated review output folder:
+In Terminal 1, start the server and keep it running. This uses a dedicated review output folder:
 
 ```bash
 CUT_OFF_DIR=target/review-cut-off cargo run --release --locked
@@ -111,11 +111,11 @@ Things that surprise people:
 cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test --locked
 ```
 
-End-to-end, from Terminal 2 against the running local binary or container:
-
 Use a disposable review instance and its own output folder or volume, as above. The Postman collection and smoke test create clients, change balances, run cut-offs and write files. Never target real data.
 
 The optional Newman CLI needs Node.js and npm (`npx`). Alternatively, use the Postman app as described below. The `npx` command may download Newman 6 if it is not already cached.
+
+End-to-end, from Terminal 2 against the running local binary or container:
 
 | Tool | Command |
 | --- | --- |
@@ -173,7 +173,9 @@ One crate, four layers as modules:
 - Amounts are `rust_decimal::Decimal`, parsed from the JSON text straight into a `Decimal`. A float would silently change `12345678901234567.89`.
 - Greater than 0, with at most 2 significant decimals.
 - Every accepted movement is exact. Checked `Decimal` arithmetic can still round near its precision limit, so the result is also verified using exact integer arithmetic before the balance changes. An out-of-range or inexact result gives 422 `BALANCE_OVERFLOW` and leaves the balance unchanged.
-- Safe whole-number operations through `Decimal::MAX` remain supported. A `0.01` debit from that balance is rejected because the exact result cannot fit, rather than succeeding without subtracting the cent. Successful responses keep the checked result's existing scale, including trailing zeros when representable.
+- Safe whole-number operations through `Decimal::MAX` remain supported.
+- A `0.01` debit from `Decimal::MAX` is rejected, because the exact result cannot fit, rather than succeeding without subtracting the cent.
+- Successful responses keep the checked result's existing scale, including trailing zeros when the result fits.
 - A balance is the net position since the last cut-off, not available funds, so it may be negative.
 
 ### Cut-off
