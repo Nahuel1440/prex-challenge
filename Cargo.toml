@@ -16,4 +16,5 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
 actix-http = "3"
+regex = "1"
 tempfile = "3"
