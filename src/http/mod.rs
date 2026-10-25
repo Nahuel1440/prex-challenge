@@ -2,6 +2,7 @@
 
 mod error;
 mod health;
+mod movement;
 mod new_client;
 
 use actix_web::web::{JsonConfig, ServiceConfig};
@@ -15,5 +16,7 @@ pub fn configure(service_config: &mut ServiceConfig) {
     service_config
         .app_data(JsonConfig::default().error_handler(error::invalid_json_body))
         .service(health::health)
-        .service(new_client::new_client);
+        .service(new_client::new_client)
+        .service(movement::new_credit_transaction)
+        .service(movement::new_debit_transaction);
 }
