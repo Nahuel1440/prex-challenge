@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Hits every endpoint that exists so far and fails on an unexpected status or body.
+# With CUT_OFF_DIR set (the folder the server writes to), it also checks the cut-off files.
 set -euo pipefail
 
 BASE_URL="${BASE_URL:-http://127.0.0.1:8080}"
@@ -70,5 +71,32 @@ expect_status 200 "\"client_id\":$CLIENT_ID,\"client_name\":\"Movement Client\",
 expect_status 200 '"country":"AR","balance":-929.50}' "$BASE_URL/client_balance?user_id=$CLIENT_ID"
 expect_status 404 'CLIENT_NOT_FOUND' "$BASE_URL/client_balance?user_id=999999999"
 expect_status 400 'INVALID_REQUEST' "$BASE_URL/client_balance?user_id=abc"
+
+# Cut-off: the movements above leave -929.50, which the cut-off stores and resets to 0.
+expect_status 200 '"file_name":"' --request POST "$BASE_URL/store_balances"
+expect_status 200 '"balance":0}' "$BASE_URL/client_balance?user_id=$CLIENT_ID"
+
+# Prints the N of the file_name of a POST /store_balances answer, `DDMMYYYY_N.DAT`.
+store_balances_counter() {
+  local response
+  response="$(curl --silent --request POST "$BASE_URL/store_balances")"
+  if [[ ! "$response" =~ _([0-9]+)\.DAT ]]; then
+    echo "FAIL: no counter in the store_balances answer: $response" >&2
+    exit 1
+  fi
+  echo "${BASH_REMATCH[1]}"
+}
+
+FIRST_COUNTER="$(store_balances_counter)"
+SECOND_COUNTER="$(store_balances_counter)"
+if [[ "$SECOND_COUNTER" != "$((FIRST_COUNTER + 1))" ]]; then
+  echo "FAIL: counters $FIRST_COUNTER then $SECOND_COUNTER are not consecutive" >&2
+  exit 1
+fi
+echo "ok: cut-off counters $FIRST_COUNTER then $SECOND_COUNTER"
+
+if [[ -n "${CUT_OFF_DIR:-}" ]]; then
+  "$(dirname "$0")/check_cut_off_files.sh" "$CUT_OFF_DIR"
+fi
 
 echo "smoke passed"
