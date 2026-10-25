@@ -1,10 +1,11 @@
 //! Client service.
 
 use chrono::NaiveDate;
+use rust_decimal::Decimal;
 use tokio::sync::Mutex;
 
 use super::{AppError, ClientStore};
-use crate::domain::{ClientId, NewClient};
+use crate::domain::{Amount, ClientId, NewClient};
 
 /// The unvalidated data to register a client, as the issuer sent it.
 #[derive(Debug, Clone)]
@@ -49,6 +50,24 @@ impl ClientService {
 
         self.store.lock().await.register(new_client)
     }
+
+    /// Adds `amount` to the client balance and returns the new balance.
+    pub async fn credit(&self, client_id: ClientId, amount: Amount) -> Result<Decimal, AppError> {
+        let mut store = self.store.lock().await;
+        let client = store.client_mut(client_id)?;
+        client.credit(amount)?;
+
+        Ok(client.balance)
+    }
+
+    /// Subtracts `amount` from the client balance and returns the new balance.
+    pub async fn debit(&self, client_id: ClientId, amount: Amount) -> Result<Decimal, AppError> {
+        let mut store = self.store.lock().await;
+        let client = store.client_mut(client_id)?;
+        client.debit(amount)?;
+
+        Ok(client.balance)
+    }
 }
 
 #[cfg(test)]
@@ -57,9 +76,12 @@ mod tests {
     use crate::application::AppError;
     use crate::domain::ClientId;
     use chrono::NaiveDate;
+    use rust_decimal::Decimal;
+    use std::str::FromStr;
     use std::sync::Arc;
 
     const CONCURRENT_REGISTRATIONS: usize = 50;
+    const CONCURRENT_MOVEMENTS: usize = 100;
 
     fn today() -> NaiveDate {
         NaiveDate::from_ymd_opt(2026, 10, 24).unwrap()
@@ -165,5 +187,85 @@ mod tests {
         }
 
         assert_eq!(successes, 1);
+    }
+
+    fn amount(text: &str) -> Amount {
+        Amount::try_from(Decimal::from_str(text).unwrap()).unwrap()
+    }
+
+    fn balance(text: &str) -> Decimal {
+        Decimal::from_str(text).unwrap()
+    }
+
+    async fn registered_client(service: &ClientService) -> ClientId {
+        service
+            .register(registration_with_document("1"), today())
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn credit_then_debit_return_the_new_balance() {
+        let service = ClientService::new();
+        let client_id = registered_client(&service).await;
+
+        let after_credit = service.credit(client_id, amount("100.50")).await;
+        let after_debit = service.debit(client_id, amount("30")).await;
+
+        assert_eq!(after_credit.unwrap(), balance("100.50"));
+        assert_eq!(after_debit.unwrap(), balance("70.50"));
+    }
+
+    #[tokio::test]
+    async fn credit_unknown_client_fails_with_client_not_found() {
+        let service = ClientService::new();
+        let unknown = ClientId::new(42);
+
+        let error = service.credit(unknown, amount("1")).await;
+
+        assert_eq!(error.unwrap_err(), AppError::ClientNotFound(unknown));
+    }
+
+    #[tokio::test]
+    async fn debit_unknown_client_fails_with_client_not_found() {
+        let service = ClientService::new();
+        let unknown = ClientId::new(42);
+
+        let error = service.debit(unknown, amount("1")).await;
+
+        assert_eq!(error.unwrap_err(), AppError::ClientNotFound(unknown));
+    }
+
+    #[tokio::test]
+    async fn credit_overflow_returns_balance_overflow_and_balance_unchanged() {
+        let service = ClientService::new();
+        let client_id = registered_client(&service).await;
+        let near_max = Amount::try_from(Decimal::MAX).unwrap();
+        service.credit(client_id, near_max).await.unwrap();
+
+        let error = service.credit(client_id, amount("1")).await;
+        let balance_after = service.debit(client_id, amount("1")).await.unwrap();
+
+        assert_eq!(error.unwrap_err(), AppError::BalanceOverflow);
+        assert_eq!(balance_after, Decimal::MAX - Decimal::ONE);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_credits_on_one_client_sum_exactly() {
+        let service = Arc::new(ClientService::new());
+        let client_id = registered_client(&service).await;
+
+        let tasks: Vec<_> = (0..CONCURRENT_MOVEMENTS)
+            .map(|_| {
+                let service = Arc::clone(&service);
+                tokio::spawn(async move { service.credit(client_id, amount("0.01")).await })
+            })
+            .collect();
+        for task in tasks {
+            task.await.unwrap().unwrap();
+        }
+
+        let final_balance = service.debit(client_id, amount("0.01")).await.unwrap();
+        assert_eq!(final_balance, balance("0.99"));
     }
 }

@@ -23,6 +23,9 @@ impl AppError {
         match self {
             Self::InvalidRequest(_) => "INVALID_REQUEST",
             Self::DocumentAlreadyRegistered => "DOCUMENT_ALREADY_REGISTERED",
+            Self::InvalidAmount(_) => "INVALID_AMOUNT",
+            Self::ClientNotFound(_) => "CLIENT_NOT_FOUND",
+            Self::BalanceOverflow => "BALANCE_OVERFLOW",
         }
     }
 }
@@ -32,6 +35,9 @@ impl ResponseError for AppError {
         match self {
             Self::InvalidRequest(_) => StatusCode::BAD_REQUEST,
             Self::DocumentAlreadyRegistered => StatusCode::CONFLICT,
+            Self::InvalidAmount(_) => StatusCode::BAD_REQUEST,
+            Self::ClientNotFound(_) => StatusCode::NOT_FOUND,
+            Self::BalanceOverflow => StatusCode::UNPROCESSABLE_ENTITY,
         }
     }
 

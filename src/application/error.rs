@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use crate::domain::ClientFieldError;
+use crate::domain::{AmountError, BalanceOverflow, ClientFieldError, ClientId};
 
 /// A use case that could not be completed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -11,6 +11,12 @@ pub enum AppError {
     InvalidRequest(String),
     /// Another client already has this normalized document number.
     DocumentAlreadyRegistered,
+    /// The movement amount is zero, negative or has too many decimals.
+    InvalidAmount(AmountError),
+    /// No client has this id.
+    ClientNotFound(ClientId),
+    /// The movement would take the balance outside the range of `Decimal`.
+    BalanceOverflow,
 }
 
 impl fmt::Display for AppError {
@@ -20,6 +26,11 @@ impl fmt::Display for AppError {
             Self::DocumentAlreadyRegistered => {
                 formatter.write_str("a client with this document_number already exists")
             }
+            Self::InvalidAmount(error) => write!(formatter, "{error}"),
+            Self::ClientNotFound(client_id) => {
+                write!(formatter, "client {} does not exist", client_id.value())
+            }
+            Self::BalanceOverflow => write!(formatter, "{BalanceOverflow}"),
         }
     }
 }
@@ -29,5 +40,17 @@ impl std::error::Error for AppError {}
 impl From<ClientFieldError> for AppError {
     fn from(error: ClientFieldError) -> Self {
         Self::InvalidRequest(error.to_string())
+    }
+}
+
+impl From<AmountError> for AppError {
+    fn from(error: AmountError) -> Self {
+        Self::InvalidAmount(error)
+    }
+}
+
+impl From<BalanceOverflow> for AppError {
+    fn from(_overflow: BalanceOverflow) -> Self {
+        Self::BalanceOverflow
     }
 }
