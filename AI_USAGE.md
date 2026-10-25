@@ -19,7 +19,7 @@ I used AI tools to build this challenge. This page says what I did and what the 
 | --- | --- |
 | Claude Code with Claude Opus 5.5 | Design and orchestration: planning the slices, writing the briefs, checking each pull request. |
 | Claude Code with Claude Sonnet 5.5 | Implementation, through subagents. |
-| ChatGPT | A second review of the plan, to get another point of view. |
+| Codex with Sol 6.1 | A second review of the plan, to get another point of view. |
 
 ## Skills and other tools
 
