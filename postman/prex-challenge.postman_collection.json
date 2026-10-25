@@ -318,6 +318,83 @@
           }
         }
       ]
+    },
+    {
+      "name": "client_balance returns profile and balance -929.50",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{base_url}}/client_balance?user_id={{client_id}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', () => pm.response.to.have.status(200));",
+              "pm.test('body has every field and the balance left by the movements', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body.client_id).to.eql(Number(pm.collectionVariables.get('client_id')));",
+              "  pm.expect(body.client_name).to.eql('Ana P\u00e9rez');",
+              "  pm.expect(body.birth_date).to.eql('1990-05-17');",
+              "  pm.expect(body.document_number).to.eql(pm.collectionVariables.get('document_number'));",
+              "  pm.expect(body.country).to.eql('AR');",
+              "  pm.expect(body.balance).to.be.a('number').and.to.eql(-929.5);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "client_balance unknown id 404",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{base_url}}/client_balance?user_id=999999999"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 404', () => pm.response.to.have.status(404));",
+              "pm.test('code is CLIENT_NOT_FOUND', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body.code).to.eql('CLIENT_NOT_FOUND');",
+              "  pm.expect(body.message).to.be.a('string');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "client_balance user_id abc 400",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{base_url}}/client_balance?user_id=abc"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 400', () => pm.response.to.have.status(400));",
+              "pm.test('code is INVALID_REQUEST as JSON', () => {",
+              "  pm.response.to.have.header('Content-Type', 'application/json');",
+              "  const body = pm.response.json();",
+              "  pm.expect(body.code).to.eql('INVALID_REQUEST');",
+              "  pm.expect(body.message).to.be.a('string');",
+              "});"
+            ]
+          }
+        }
+      ]
     }
   ]
 }
