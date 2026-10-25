@@ -1,0 +1,9 @@
+target
+.git
+.github
+cut_off_files
+docs
+scripts
+postman
+tests
+README.md

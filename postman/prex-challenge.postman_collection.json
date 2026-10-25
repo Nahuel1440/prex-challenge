@@ -4,467 +4,621 @@
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "base_url", "value": "http://127.0.0.1:8080" },
-    { "key": "client_id", "value": "" },
-    { "key": "document_number", "value": "" },
-    { "key": "same_document_other_format", "value": "" },
-    { "key": "file_counter", "value": "" }
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:8080"
+    },
+    {
+      "key": "client_id",
+      "value": ""
+    },
+    {
+      "key": "document_number",
+      "value": ""
+    },
+    {
+      "key": "same_document_other_format",
+      "value": ""
+    },
+    {
+      "key": "file_counter",
+      "value": ""
+    }
   ],
   "item": [
     {
-      "name": "health",
-      "request": { "method": "GET", "url": "{{base_url}}/health" },
-      "event": [
+      "name": "GET /health",
+      "description": "Not in the PDF. Used by CI and container probes.",
+      "item": [
         {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('status is 200', () => pm.response.to.have.status(200));",
-              "pm.test('body is { status: ok }', () => pm.expect(pm.response.json()).to.eql({ status: 'ok' }));"
-            ]
-          }
+          "name": "health",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/health",
+            "description": "Liveness probe. Not part of the challenge PDF; used by CI and container probes."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('body is { status: ok }', () => pm.expect(pm.response.json()).to.eql({ status: 'ok' }));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
     {
-      "name": "new_client 201",
-      "request": {
-        "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
-        "url": "{{base_url}}/new_client",
-        "body": {
-          "mode": "raw",
-          "raw": "{ \"client_name\": \"Ana Pérez\", \"birth_date\": \"1990-05-17\", \"document_number\": \"{{document_number}}\", \"country\": \"ar\" }"
-        }
-      },
-      "event": [
+      "name": "POST /new_client",
+      "description": "Registers clients. Normalizes document and country. A document is unique after normalization.",
+      "item": [
         {
-          "listen": "prerequest",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "const stamp = Date.now();",
-              "pm.collectionVariables.set('document_number', 'E2E' + stamp);",
-              "pm.collectionVariables.set('same_document_other_format', 'e2e.' + stamp);"
-            ]
-          }
+          "name": "new_client 201",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/new_client",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"client_name\": \"Ana Pérez\", \"birth_date\": \"1990-05-17\", \"document_number\": \"{{document_number}}\", \"country\": \"ar\" }"
+            },
+            "description": "Registers Ana with a messy document (dots) and a lowercase country. Saves `client_id` for the next folders."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const stamp = Date.now();",
+                  "pm.collectionVariables.set('document_number', 'E2E' + stamp);",
+                  "pm.collectionVariables.set('same_document_other_format', 'e2e.' + stamp);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                  "pm.test('body has a numeric client_id', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.client_id).to.be.a('number').and.to.be.at.least(1);",
+                  "  pm.collectionVariables.set('client_id', body.client_id);",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('status is 201', () => pm.response.to.have.status(201));",
-              "pm.test('body has a numeric client_id', () => {",
-              "  const body = pm.response.json();",
-              "  pm.expect(body.client_id).to.be.a('number').and.to.be.at.least(1);",
-              "  pm.collectionVariables.set('client_id', body.client_id);",
-              "});"
-            ]
-          }
+          "name": "new_client same document in another format 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/new_client",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"client_name\": \"Otra Persona\", \"birth_date\": \"1985-01-02\", \"document_number\": \"{{same_document_other_format}}\", \"country\": \"AR\" }"
+            },
+            "description": "Same document without dots: the normalized document clashes, so the answer is 409."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 409', () => pm.response.to.have.status(409));",
+                  "pm.test('code is DOCUMENT_ALREADY_REGISTERED', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.code).to.eql('DOCUMENT_ALREADY_REGISTERED');",
+                  "  pm.expect(body.message).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "new_client invalid body 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/new_client",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"client_name\": \"   \", \"birth_date\": \"1990-05-17\", \"document_number\": \"123\", \"country\": \"AR\" }"
+            },
+            "description": "A blank name is rejected with INVALID_REQUEST."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test('code is INVALID_REQUEST', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.code).to.eql('INVALID_REQUEST');",
+                  "  pm.expect(body.message).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
     {
-      "name": "new_client same document in another format 409",
-      "request": {
-        "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
-        "url": "{{base_url}}/new_client",
-        "body": {
-          "mode": "raw",
-          "raw": "{ \"client_name\": \"Otra Persona\", \"birth_date\": \"1985-01-02\", \"document_number\": \"{{same_document_other_format}}\", \"country\": \"AR\" }"
-        }
-      },
-      "event": [
+      "name": "POST /new_credit_transaction",
+      "description": "Adds an amount (greater than zero, at most 2 decimals) to a client balance.",
+      "item": [
         {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('status is 409', () => pm.response.to.have.status(409));",
-              "pm.test('code is DOCUMENT_ALREADY_REGISTERED', () => {",
-              "  const body = pm.response.json();",
-              "  pm.expect(body.code).to.eql('DOCUMENT_ALREADY_REGISTERED');",
-              "  pm.expect(body.message).to.be.a('string');",
-              "});"
-            ]
-          }
+          "name": "credit 100.50 -> balance 100.50",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/new_credit_transaction",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"client_id\": {{client_id}}, \"credit_amount\": 100.50 }"
+            },
+            "description": "Happy path. The balance keeps the trailing zero because amounts never go through a float."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('body has client_id and balance 100.50', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.client_id).to.eql(Number(pm.collectionVariables.get('client_id')));",
+                  "  pm.expect(pm.response.text()).to.include('\"balance\":100.50');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "credit amount 0 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/new_credit_transaction",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"client_id\": {{client_id}}, \"credit_amount\": 0 }"
+            },
+            "description": "An amount of zero is INVALID_AMOUNT."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test('code is INVALID_AMOUNT', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.code).to.eql('INVALID_AMOUNT');",
+                  "  pm.expect(body.message).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "credit amount as string 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/new_credit_transaction",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"client_id\": {{client_id}}, \"credit_amount\": \"100.50\" }"
+            },
+            "description": "A JSON string instead of a number is INVALID_REQUEST."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test('code is INVALID_REQUEST', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.code).to.eql('INVALID_REQUEST');",
+                  "  pm.expect(body.message).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "credit unknown client 404",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/new_credit_transaction",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"client_id\": 999999999, \"credit_amount\": 10 }"
+            },
+            "description": "An unknown client is CLIENT_NOT_FOUND."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404', () => pm.response.to.have.status(404));",
+                  "pm.test('code is CLIENT_NOT_FOUND', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.code).to.eql('CLIENT_NOT_FOUND');",
+                  "  pm.expect(body.message).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
     {
-      "name": "new_client invalid body 400",
-      "request": {
-        "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
-        "url": "{{base_url}}/new_client",
-        "body": {
-          "mode": "raw",
-          "raw": "{ \"client_name\": \"   \", \"birth_date\": \"1990-05-17\", \"document_number\": \"123\", \"country\": \"AR\" }"
-        }
-      },
-      "event": [
+      "name": "POST /new_debit_transaction",
+      "description": "Subtracts an amount from a client balance. The balance may go negative.",
+      "item": [
         {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('status is 400', () => pm.response.to.have.status(400));",
-              "pm.test('code is INVALID_REQUEST', () => {",
-              "  const body = pm.response.json();",
-              "  pm.expect(body.code).to.eql('INVALID_REQUEST');",
-              "  pm.expect(body.message).to.be.a('string');",
-              "});"
-            ]
-          }
+          "name": "debit 30 -> balance 70.50",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/new_debit_transaction",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"client_id\": {{client_id}}, \"debit_amount\": 30 }"
+            },
+            "description": "Happy path. Needs the credit above to have run first."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('body has client_id and balance 70.50', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.client_id).to.eql(Number(pm.collectionVariables.get('client_id')));",
+                  "  pm.expect(pm.response.text()).to.include('\"balance\":70.50');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "debit 1000 -> negative balance -929.50",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/new_debit_transaction",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"client_id\": {{client_id}}, \"debit_amount\": 1000 }"
+            },
+            "description": "A balance may go below zero: it is a net position, not available funds."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('body has client_id and balance -929.50', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.client_id).to.eql(Number(pm.collectionVariables.get('client_id')));",
+                  "  pm.expect(pm.response.text()).to.include('\"balance\":-929.50');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "debit amount 0 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/new_debit_transaction",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"client_id\": {{client_id}}, \"debit_amount\": 0 }"
+            },
+            "description": "A debit of zero is INVALID_AMOUNT."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test('code is INVALID_AMOUNT', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.code).to.eql('INVALID_AMOUNT');",
+                  "  pm.expect(body.message).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "debit unknown client 404",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/new_debit_transaction",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"client_id\": 999999999, \"debit_amount\": 10 }"
+            },
+            "description": "An unknown client is CLIENT_NOT_FOUND."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404', () => pm.response.to.have.status(404));",
+                  "pm.test('code is CLIENT_NOT_FOUND', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.code).to.eql('CLIENT_NOT_FOUND');",
+                  "  pm.expect(body.message).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
     {
-      "name": "credit 100.50 -> balance 100.50",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "url": "{{base_url}}/new_credit_transaction",
-        "body": {
-          "mode": "raw",
-          "raw": "{ \"client_id\": {{client_id}}, \"credit_amount\": 100.50 }"
-        }
-      },
-      "event": [
+      "name": "GET /client_balance",
+      "description": "Reads one client by `user_id` (the id returned by new_client).",
+      "item": [
         {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('status is 200', () => pm.response.to.have.status(200));",
-              "pm.test('body has client_id and balance 100.50', () => {",
-              "  const body = pm.response.json();",
-              "  pm.expect(body.client_id).to.eql(Number(pm.collectionVariables.get('client_id')));",
-              "  pm.expect(pm.response.text()).to.include('\"balance\":100.50');",
-              "});"
-            ]
-          }
+          "name": "client_balance returns profile and balance -929.50",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/client_balance?user_id={{client_id}}",
+            "description": "Profile with the normalized document and country, plus the balance left by the movements."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('body has every field and the balance left by the movements', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.client_id).to.eql(Number(pm.collectionVariables.get('client_id')));",
+                  "  pm.expect(body.client_name).to.eql('Ana Pérez');",
+                  "  pm.expect(body.birth_date).to.eql('1990-05-17');",
+                  "  pm.expect(body.document_number).to.eql(pm.collectionVariables.get('document_number'));",
+                  "  pm.expect(body.country).to.eql('AR');",
+                  "  pm.expect(body.balance).to.be.a('number').and.to.eql(-929.5);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "client_balance unknown id 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/client_balance?user_id=999999999",
+            "description": "An unknown user_id is CLIENT_NOT_FOUND."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404', () => pm.response.to.have.status(404));",
+                  "pm.test('code is CLIENT_NOT_FOUND', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.code).to.eql('CLIENT_NOT_FOUND');",
+                  "  pm.expect(body.message).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "client_balance user_id abc 400",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/client_balance?user_id=abc",
+            "description": "A non-integer user_id is INVALID_REQUEST, as a JSON error."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test('code is INVALID_REQUEST as JSON', () => {",
+                  "  pm.response.to.have.header('Content-Type', 'application/json');",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.code).to.eql('INVALID_REQUEST');",
+                  "  pm.expect(body.message).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
     {
-      "name": "debit 30 -> balance 70.50",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "url": "{{base_url}}/new_debit_transaction",
-        "body": {
-          "mode": "raw",
-          "raw": "{ \"client_id\": {{client_id}}, \"debit_amount\": 30 }"
-        }
-      },
-      "event": [
+      "name": "POST /store_balances",
+      "description": "Cut-off: writes every balance to DDMMYYYY_N.DAT in CUT_OFF_DIR, then resets balances to 0.",
+      "item": [
         {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('status is 200', () => pm.response.to.have.status(200));",
-              "pm.test('body has client_id and balance 70.50', () => {",
-              "  const body = pm.response.json();",
-              "  pm.expect(body.client_id).to.eql(Number(pm.collectionVariables.get('client_id')));",
-              "  pm.expect(pm.response.text()).to.include('\"balance\":70.50');",
-              "});"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "debit 1000 -> negative balance -929.50",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "url": "{{base_url}}/new_debit_transaction",
-        "body": {
-          "mode": "raw",
-          "raw": "{ \"client_id\": {{client_id}}, \"debit_amount\": 1000 }"
-        }
-      },
-      "event": [
+          "name": "store_balances 200 with the cut-off file name",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/store_balances",
+            "description": "Runs a cut-off. Saves the file counter for the request after the next one."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('file_name looks like DDMMYYYY_N.DAT', () => {",
+                  "  const match = /^\\d{8}_(\\d+)\\.DAT$/.exec(pm.response.json().file_name);",
+                  "  pm.expect(match, 'file_name').to.not.equal(null);",
+                  "  pm.collectionVariables.set('file_counter', match[1]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
         {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('status is 200', () => pm.response.to.have.status(200));",
-              "pm.test('body has client_id and balance -929.50', () => {",
-              "  const body = pm.response.json();",
-              "  pm.expect(body.client_id).to.eql(Number(pm.collectionVariables.get('client_id')));",
-              "  pm.expect(pm.response.text()).to.include('\"balance\":-929.50');",
-              "});"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "credit amount 0 400",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "url": "{{base_url}}/new_credit_transaction",
-        "body": {
-          "mode": "raw",
-          "raw": "{ \"client_id\": {{client_id}}, \"credit_amount\": 0 }"
-        }
-      },
-      "event": [
+          "name": "client_balance is 0 after the cut-off",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/client_balance?user_id={{client_id}}",
+            "description": "The cut-off reset the balance to zero."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('balance was reset to 0', () => pm.expect(pm.response.json().balance).to.eql(0));"
+                ]
+              }
+            }
+          ]
+        },
         {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('status is 400', () => pm.response.to.have.status(400));",
-              "pm.test('code is INVALID_AMOUNT', () => {",
-              "  const body = pm.response.json();",
-              "  pm.expect(body.code).to.eql('INVALID_AMOUNT');",
-              "  pm.expect(body.message).to.be.a('string');",
-              "});"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "credit amount as string 400",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "url": "{{base_url}}/new_credit_transaction",
-        "body": {
-          "mode": "raw",
-          "raw": "{ \"client_id\": {{client_id}}, \"credit_amount\": \"100.50\" }"
-        }
-      },
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('status is 400', () => pm.response.to.have.status(400));",
-              "pm.test('code is INVALID_REQUEST', () => {",
-              "  const body = pm.response.json();",
-              "  pm.expect(body.code).to.eql('INVALID_REQUEST');",
-              "  pm.expect(body.message).to.be.a('string');",
-              "});"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "credit unknown client 404",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "url": "{{base_url}}/new_credit_transaction",
-        "body": {
-          "mode": "raw",
-          "raw": "{ \"client_id\": 999999999, \"credit_amount\": 10 }"
-        }
-      },
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('status is 404', () => pm.response.to.have.status(404));",
-              "pm.test('code is CLIENT_NOT_FOUND', () => {",
-              "  const body = pm.response.json();",
-              "  pm.expect(body.code).to.eql('CLIENT_NOT_FOUND');",
-              "  pm.expect(body.message).to.be.a('string');",
-              "});"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "client_balance returns profile and balance -929.50",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": "{{base_url}}/client_balance?user_id={{client_id}}"
-      },
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('status is 200', () => pm.response.to.have.status(200));",
-              "pm.test('body has every field and the balance left by the movements', () => {",
-              "  const body = pm.response.json();",
-              "  pm.expect(body.client_id).to.eql(Number(pm.collectionVariables.get('client_id')));",
-              "  pm.expect(body.client_name).to.eql('Ana P\u00e9rez');",
-              "  pm.expect(body.birth_date).to.eql('1990-05-17');",
-              "  pm.expect(body.document_number).to.eql(pm.collectionVariables.get('document_number'));",
-              "  pm.expect(body.country).to.eql('AR');",
-              "  pm.expect(body.balance).to.be.a('number').and.to.eql(-929.5);",
-              "});"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "client_balance unknown id 404",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": "{{base_url}}/client_balance?user_id=999999999"
-      },
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('status is 404', () => pm.response.to.have.status(404));",
-              "pm.test('code is CLIENT_NOT_FOUND', () => {",
-              "  const body = pm.response.json();",
-              "  pm.expect(body.code).to.eql('CLIENT_NOT_FOUND');",
-              "  pm.expect(body.message).to.be.a('string');",
-              "});"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "client_balance user_id abc 400",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": "{{base_url}}/client_balance?user_id=abc"
-      },
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('status is 400', () => pm.response.to.have.status(400));",
-              "pm.test('code is INVALID_REQUEST as JSON', () => {",
-              "  pm.response.to.have.header('Content-Type', 'application/json');",
-              "  const body = pm.response.json();",
-              "  pm.expect(body.code).to.eql('INVALID_REQUEST');",
-              "  pm.expect(body.message).to.be.a('string');",
-              "});"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "store_balances 200 with the cut-off file name",
-      "request": {
-        "method": "POST",
-        "header": [],
-        "url": "{{base_url}}/store_balances"
-      },
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('status is 200', () => pm.response.to.have.status(200));",
-              "pm.test('file_name looks like DDMMYYYY_N.DAT', () => {",
-              "  const match = /^\\d{8}_(\\d+)\\.DAT$/.exec(pm.response.json().file_name);",
-              "  pm.expect(match, 'file_name').to.not.equal(null);",
-              "  pm.collectionVariables.set('file_counter', match[1]);",
-              "});"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "client_balance is 0 after the cut-off",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": "{{base_url}}/client_balance?user_id={{client_id}}"
-      },
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('status is 200', () => pm.response.to.have.status(200));",
-              "pm.test('balance was reset to 0', () => pm.expect(pm.response.json().balance).to.eql(0));"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "store_balances again uses the next counter",
-      "request": {
-        "method": "POST",
-        "header": [],
-        "url": "{{base_url}}/store_balances"
-      },
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('status is 200', () => pm.response.to.have.status(200));",
-              "pm.test('file_name looks like DDMMYYYY_N.DAT', () => {",
-              "  const match = /^\\d{8}_(\\d+)\\.DAT$/.exec(pm.response.json().file_name);",
-              "  pm.expect(match, 'file_name').to.not.equal(null);",
-              "  const previous = Number(pm.collectionVariables.get('file_counter'));",
-              "  pm.expect(Number(match[1])).to.eql(previous + 1);",
-              "});"
-            ]
-          }
+          "name": "store_balances again uses the next counter",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/store_balances",
+            "description": "The second cut-off gets the next number in the file name."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('file_name looks like DDMMYYYY_N.DAT', () => {",
+                  "  const match = /^\\d{8}_(\\d+)\\.DAT$/.exec(pm.response.json().file_name);",
+                  "  pm.expect(match, 'file_name').to.not.equal(null);",
+                  "  const previous = Number(pm.collectionVariables.get('file_counter'));",
+                  "  pm.expect(Number(match[1])).to.eql(previous + 1);",
+                  "});"
+                ]
+              }
+            }
+          ]
         }
       ]
     }
-  ]
+  ],
+  "description": "Run the folders in order: later requests use `client_id` and `file_counter` saved by earlier ones. Set `base_url` (default http://127.0.0.1:8080) to point at another instance. Command line: `npx --yes newman@6 run postman/prex-challenge.postman_collection.json --env-var base_url=http://127.0.0.1:8080`."
 }
