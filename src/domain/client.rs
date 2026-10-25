@@ -61,7 +61,7 @@ pub struct BalanceOverflow;
 
 impl fmt::Display for BalanceOverflow {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("the movement would overflow the client balance")
+        formatter.write_str("the resulting balance cannot be represented exactly")
     }
 }
 
@@ -108,26 +108,33 @@ impl Client {
     }
 }
 
-/// Verifies the checked result without changing its scale or rounding it again.
+/// Returns `balance + change` as checked `Decimal` arithmetic gives it, keeping its scale.
+///
+/// Fails with `BalanceOverflow` when the sum is out of range or differs from the exact sum,
+/// because `Decimal` rounds silently once its 96-bit mantissa is full.
 fn exact_balance_sum(balance: Decimal, change: Decimal) -> Result<Decimal, BalanceOverflow> {
-    let candidate = balance.checked_add(change).ok_or(BalanceOverflow)?;
-    let scale = balance.normalize().scale().max(change.normalize().scale());
-    let aligned_mantissa = |value: Decimal| {
-        let normalized = value.normalize();
-        let factor = 10_i128.checked_pow(scale.checked_sub(normalized.scale())?)?;
-        normalized.mantissa().checked_mul(factor)
-    };
+    let checked_sum = balance.checked_add(change).ok_or(BalanceOverflow)?;
+    let common_scale = balance.normalize().scale().max(change.normalize().scale());
 
-    // Decimal's checked arithmetic may round when its 96-bit mantissa is full.
-    // With at most two significant decimals, the exact sum fits in i128 instead.
-    let left = aligned_mantissa(balance).ok_or(BalanceOverflow)?;
-    let right = aligned_mantissa(change).ok_or(BalanceOverflow)?;
-    let expected = left.checked_add(right).ok_or(BalanceOverflow)?;
-    if aligned_mantissa(candidate) != Some(expected) {
+    let balance_units = mantissa_at_scale(balance, common_scale).ok_or(BalanceOverflow)?;
+    let change_units = mantissa_at_scale(change, common_scale).ok_or(BalanceOverflow)?;
+    let exact_units = balance_units
+        .checked_add(change_units)
+        .ok_or(BalanceOverflow)?;
+
+    if mantissa_at_scale(checked_sum, common_scale) != Some(exact_units) {
         return Err(BalanceOverflow);
     }
 
-    Ok(candidate)
+    Ok(checked_sum)
+}
+
+/// The value as an integer count of `10^-scale` units, or `None` if it needs more decimals or overflows.
+fn mantissa_at_scale(value: Decimal, scale: u32) -> Option<i128> {
+    let normalized = value.normalize();
+    let factor = 10_i128.checked_pow(scale.checked_sub(normalized.scale())?)?;
+
+    normalized.mantissa().checked_mul(factor)
 }
 
 #[cfg(test)]
